@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>R2 Assessoria Esportiva</title>
+  
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Google Material Icons -->
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  
+  <!-- Chart.js para gráficos de evolução -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Plugin para rótulos nos gráficos (Chart.js v4 compatível) -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'r2-primary': '#3EA4D4',
+            'r2-primary-dark': '#3DA4CC',
+            'r2-secondary': '#247DAA',
+            'r2-bg': '#D7E1E7',
+            'r2-text': '#1C3C59',
+            'r2-text-body': '#455C74',
+            'r2-text-muted': '#728396',
+          },
+          fontFamily: {
+            'sans': ['Roboto', 'sans-serif'],
+          },
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Utilities essenciais para Tailwind */
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    
+    /* Animações customizadas */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    @keyframes slideInRight {
+      from {
+        opacity: 0;
+        transform: translateX(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+    
+    .animate-fade-in-up {
+      animation: fadeInUp 0.5s ease-out forwards;
+    }
+    
+    .animate-fade-in {
+      animation: fadeIn 0.4s ease-out forwards;
+    }
+    
+    .animate-slide-in-right {
+      animation: slideInRight 0.4s ease-out forwards;
+    }
+    
+    /* Ripple effect para botões */
+    .ripple {
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .ripple::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 0;
+      height: 0;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.5);
+      transform: translate(-50%, -50%);
+      transition: width 0.6s, height 0.6s;
+    }
+    
+    .ripple:active::after {
+      width: 300px;
+      height: 300px;
+    }
+    
+    /* Skeleton loader */
+    @keyframes skeleton-loading {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    
+    .skeleton {
+      background: linear-gradient(
+        90deg,
+        #f0f0f0 25%,
+        #e0e0e0 50%,
+        #f0f0f0 75%
+      );
+      background-size: 200% 100%;
+      animation: skeleton-loading 1.5s infinite;
+      border-radius: 8px;
+    }
+    
+    .skeleton-text {
+      height: 1em;
+      margin-bottom: 0.5em;
+    }
+    
+    .skeleton-card {
+      height: 200px;
+      width: 100%;
+    }
+    
+    /* Variáveis CSS para compatibilidade com código legado */
+    :root {
+      --primary-color: #3EA4D4;
+      --primary-dark: #3DA4CC;
+      --secondary-color: #247DAA;
+      --background-color: #D7E1E7;
+      --text-primary: #1C3C59;
+      --text-body: #455C74;
+      --text-muted: #728396;
+      --white: #FFFFFF;
+      --sidebar-width: 260px;
+    }
+    
+    /* Landing hero com imagem de background (mantido para compatibilidade) */
+    .landing-hero .hero-inner {
+      background: var(--landing-hero-image, url('https://i.ibb.co/356t20jz/r2-banner-app.jpg')) center/cover no-repeat;
+    }
+    
+    /* Background master com imagem (mantido para compatibilidade) */
+    .master-bg-image {
+      background: url('https://files.manuscdn.com/user_upload_by_module/session_file/310519663169232133/zsWJSPwzmVYwOhmq.png') center/50% no-repeat fixed;
+      background-color: #1a1a2e;
+    }
+    
+    .master-bg-image::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, rgba(26, 26, 46, 0.85) 0%, rgba(52, 73, 94, 0.75) 100%);
+      z-index: 0;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body class="font-sans bg-r2-bg text-r2-text-body leading-relaxed">
+  <div id="app"></div>
+  
+  <?!= include('Frontend_Router'); ?>
+  <?!= include('Frontend_UI'); ?>
+  
+  <script>
+    // Inicializa a aplicação
+    window.addEventListener('DOMContentLoaded', function() {
+      initApp();
+    });
+  </script>
+</body>
+</html>
+

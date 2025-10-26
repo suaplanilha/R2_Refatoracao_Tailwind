@@ -1,0 +1,2781 @@
+<script>
+/**
+ * R2 Assessoria Esportiva - Frontend Router
+ * Gerencia roteamento, autenticação e chamadas à API
+ */
+
+// Estado global da aplicação
+const AppState = {
+  token: null,
+  user: null,
+  currentView: 'login',
+  // Estado do aluno logado (preenchido após carregar dashboard do aluno)
+  aluno: null,
+  // Quando precisar reabrir o dashboard do aluno apontando para uma aba específica
+  nextAlunoTab: null,
+  // Intenção de retorno na landing scroll (seções)
+  nextAlunoSection: null,
+  // Indica que a landing do aluno está sendo visualizada no contexto do professor
+  profViewingAlunoId: null,
+  // Armazena a seção de origem ao abrir um detalhe na landing (avaliacoes/treinos)
+  landingPrevSection: null,
+  // URL configurável da imagem de campanha para o hero
+  campaignHeroUrl: null
+};
+
+/**
+ * Inicializa a aplicação
+ */
+function initApp() {
+  // Mostra splash screen primeiro
+  showSplashScreen();
+  
+  // Após 2.5 segundos, verifica autenticação
+  setTimeout(() => {
+    // Verifica se há token salvo
+    const savedToken = localStorage.getItem('r2_token');
+    
+    if (savedToken) {
+      // Verifica se o token é válido
+      callAPI('apiVerifyToken', [savedToken])
+        .then(response => {
+          if (response.success) {
+            AppState.token = savedToken;
+            AppState.user = response.user;
+            hideSplashScreen(() => routeByProfile(response.user.Perfil));
+          } else {
+            hideSplashScreen(() => showLogin());
+          }
+        })
+        .catch(error => {
+          console.error('Erro ao verificar token:', error);
+          hideSplashScreen(() => showLogin());
+        });
+    } else {
+      hideSplashScreen(() => showLogin());
+    }
+  }, 2500); // 2.5 segundos de splash screen
+}
+
+/**
+ * Mostra a splash screen
+ */
+function showSplashScreen() {
+  const app = document.getElementById('app');
+  app.innerHTML = getSplashScreenTemplate();
+  
+  // Animação de entrada
+  requestAnimationFrame(() => {
+    const splash = document.getElementById('splashScreen');
+    if (splash) {
+      splash.style.opacity = '1';
+    }
+  });
+}
+
+/**
+ * Esconde a splash screen com fade out
+ */
+function hideSplashScreen(callback) {
+  const splash = document.getElementById('splashScreen');
+  if (splash) {
+    splash.style.opacity = '0';
+    setTimeout(() => {
+      if (callback) callback();
+    }, 500); // 500ms para fade out
+  } else {
+    if (callback) callback();
+  }
+}
+
+/**
+ * Chama uma função da API do Google Apps Script
+ */
+function callAPI(functionName, args = []) {
+  const startedAt = Date.now();
+  const tokenArg = args && args.length > 0 ? args[0] : null;
+  const maskedToken = tokenArg ? (String(tokenArg).slice(0, 8) + '...' + String(tokenArg).slice(-6)) : 'null';
+  console.debug(`[callAPI] → ${functionName} args0(token)=${maskedToken}`);
+
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler((res) => {
+        const elapsed = Date.now() - startedAt;
+        console.debug(`[callAPI] ← ${functionName} elapsed=${elapsed}ms res=`, res);
+        resolve(res);
+      })
+      .withFailureHandler((err) => {
+        const elapsed = Date.now() - startedAt;
+        console.error(`[callAPI] x ${functionName} elapsed=${elapsed}ms err=`, err);
+        reject(err);
+      })
+      [functionName](...args);
+  });
+}
+
+/**
+ * Roteia para a view apropriada baseado no perfil
+ */
+function routeByProfile(perfil) {
+  if (perfil === 'MASTER') {
+    showProfessorDashboard();
+  } else if (perfil === 'ALUNO') {
+    // Usa a nova landing scroll como experiência principal
+    showAlunoLanding();
+  } else {
+    showLogin();
+  }
+}
+
+/**
+ * Mostra a tela de login
+ */
+function showLogin() {
+  AppState.currentView = 'login';
+  const app = document.getElementById('app');
+  app.innerHTML = getLoginTemplate();
+  
+  // Adiciona event listener ao formulário
+  const loginForm = document.getElementById('loginForm');
+  loginForm.addEventListener('submit', handleLogin);
+  
+  // Event listener para "Esqueci minha senha" (placeholder)
+  const forgotLink = document.querySelector('.forgot-link');
+  if (forgotLink) {
+    forgotLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      showToast('Funcionalidade em desenvolvimento. Entre em contato com o suporte.', 'info');
+    });
+  }
+}
+
+/**
+ * Processa o login
+ */
+function handleLogin(e) {
+  e.preventDefault();
+  
+  const email = document.getElementById('email').value;
+  const senha = document.getElementById('senha').value;
+  const errorDiv = document.getElementById('errorMessage');
+  const submitBtn = document.getElementById('submitBtn');
+  
+  // Limpa mensagens de erro
+  errorDiv.style.display = 'none';
+  errorDiv.textContent = '';
+  
+  // Desabilita botão
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Entrando...';
+  
+  // Chama API de login
+  callAPI('apiLogin', [email, senha])
+    .then(response => {
+      if (response.success) {
+        // Salva token
+        AppState.token = response.token;
+        AppState.user = response.user;
+        localStorage.setItem('r2_token', response.token);
+        
+        showToast('Login realizado com sucesso!', 'success');
+        // Redireciona
+        setTimeout(() => routeByProfile(response.user.Perfil), 300);
+      } else {
+        throw new Error('Credenciais inválidas');
+      }
+    })
+    .catch(error => {
+      console.error('Erro no login:', error);
+      const msg = error.message || 'Credenciais inválidas. Tente novamente.';
+      errorDiv.textContent = msg;
+      errorDiv.style.display = 'block';
+      showToast(msg, 'error');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Entrar';
+    });
+}
+
+/**
+ * Faz logout
+ */
+function handleLogout() {
+  AppState.token = null;
+  AppState.user = null;
+  localStorage.removeItem('r2_token');
+  showLogin();
+}
+
+/**
+ * Mostra o dashboard do professor
+ */
+function showProfessorDashboard() {
+  AppState.currentView = 'professor-dashboard';
+  const app = document.getElementById('app');
+  app.innerHTML = getProfessorDashboardTemplate();
+  
+  // Carrega estatísticas
+  loadDashboardStats();
+  
+  // Adiciona event listeners
+  setupNavigation();
+}
+
+/**
+ * Carrega estatísticas do dashboard
+ */
+function loadDashboardStats() {
+  const loadingDiv = document.getElementById('statsLoading');
+  const statsContainer = document.getElementById('statsContainer');
+  
+  // Verifica se os elementos existem antes de continuar
+  if (!loadingDiv || !statsContainer) {
+    console.warn('[loadDashboardStats] Elementos não encontrados, ignorando.');
+    return;
+  }
+  
+  loadingDiv.style.display = 'block';
+  
+  callAPI('apiProfDashboardStats', [AppState.token])
+    .then(response => {
+      if (response.success) {
+        const stats = response.stats;
+        
+        const totalAlunosEl = document.getElementById('totalAlunos');
+        const alunosAtivosEl = document.getElementById('alunosAtivos');
+        const totalAvaliacoesEl = document.getElementById('totalAvaliacoes');
+        const totalTreinosEl = document.getElementById('totalTreinos');
+        
+        if (totalAlunosEl) totalAlunosEl.textContent = stats.totalAlunos || 0;
+        if (alunosAtivosEl) alunosAtivosEl.textContent = stats.alunosAtivos || 0;
+        if (totalAvaliacoesEl) totalAvaliacoesEl.textContent = stats.totalAvaliacoes || 0;
+        if (totalTreinosEl) totalTreinosEl.textContent = stats.totalTreinos || 0;
+        
+        loadingDiv.style.display = 'none';
+        statsContainer.style.display = 'grid';
+        showToast('Dashboard atualizado.', 'info');
+      }
+    })
+    .catch(error => {
+      console.error('Erro ao carregar estatísticas:', error);
+      if (loadingDiv) {
+        loadingDiv.innerHTML = '<p>Erro ao carregar estatísticas.</p>';
+      }
+      showToast('Erro ao carregar estatísticas.', 'error');
+    });
+}
+
+/**
+ * Mostra a lista de alunos
+ */
+function showAlunos() {
+  const mainContent = document.querySelector('.content-area');
+  mainContent.innerHTML = '<div class="loading active"><div class="spinner"></div><p>Carregando alunos...</p></div>';
+  
+  callAPI('apiListarAlunos', [AppState.token])
+    .then(response => {
+      if (!response || response.success !== true) {
+        const msg = (response && response.error) ? response.error : 'Resposta inválida do servidor';
+        throw new Error(msg);
+      }
+      console.log('[showAlunos] alunos recebidos:', response.alunos);
+      console.log('[showAlunos] primeiro aluno ID_Aluno:', response.alunos[0]?.ID_Aluno);
+      mainContent.innerHTML = getAlunosListTemplate(response.alunos || []);
+      setupAlunosSearch(response.alunos || []);
+    })
+    .catch(error => {
+      console.error('Erro ao carregar alunos:', error);
+      mainContent.innerHTML = '<div class="card"><p>Erro ao carregar alunos.</p></div>';
+      showToast('Erro ao carregar alunos.', 'error');
+    });
+}
+
+/**
+ * Configura a funcionalidade de busca na lista de alunos
+ */
+function setupAlunosSearch(alunos) {
+  const searchInput = document.getElementById('searchAlunos');
+  if (!searchInput) return;
+  
+  searchInput.addEventListener('input', (e) => {
+    const query = e.target.value.toLowerCase().trim();
+    const rows = document.querySelectorAll('.table tbody tr');
+    let visibleCount = 0;
+    
+    rows.forEach(row => {
+      const nome = row.cells[0]?.textContent.toLowerCase() || '';
+      const telefone = row.cells[2]?.textContent.replace(/\D/g, '') || '';
+      const queryDigits = query.replace(/\D/g, '');
+      
+      const matchNome = nome.includes(query);
+      const matchTelefone = queryDigits && telefone.includes(queryDigits);
+      
+      if (matchNome || matchTelefone || query === '') {
+        row.style.display = '';
+        visibleCount++;
+      } else {
+        row.style.display = 'none';
+      }
+    });
+    
+    // Mostra feedback de resultados
+    const feedbackEl = document.getElementById('searchFeedback');
+    if (feedbackEl) {
+      if (query === '') {
+        feedbackEl.textContent = '';
+      } else {
+        feedbackEl.textContent = `${visibleCount} aluno${visibleCount !== 1 ? 's' : ''} encontrado${visibleCount !== 1 ? 's' : ''}`;
+      }
+    }
+  });
+}
+
+/**
+ * Visualiza detalhes de um aluno específico
+ */
+function viewAluno(alunoId) {
+  console.log('[viewAluno] chamado com alunoId:', alunoId);
+  console.log('[viewAluno] AppState.token:', AppState.token ? 'presente' : 'ausente');
+  
+  const mainContent = document.querySelector('.content-area');
+  mainContent.innerHTML = getSkeletonLoader('detalhes');
+  
+  callAPI('apiGetAluno', [AppState.token, alunoId])
+    .then(response => {
+      console.log('[viewAluno] resposta recebida:', response);
+      if (!response || response.success !== true) {
+        const msg = (response && response.error) ? response.error : 'Erro ao carregar aluno';
+        throw new Error(msg);
+      }
+      
+      const aluno = response.aluno;
+      
+      mainContent.innerHTML = `
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2 class="card-title" style="margin-bottom: 0;">Detalhes do Aluno</h2>
+            <button class="btn btn-secondary" onclick="showAlunos()">
+              <span class="material-icons">arrow_back</span>
+              Voltar
+            </button>
+          </div>
+          
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+            <div>
+              <p><strong>Nome Completo:</strong></p>
+              <p>${aluno.NomeCompleto || '-'}</p>
+            </div>
+            <div>
+              <p><strong>Email:</strong></p>
+              <p>${aluno.Email || '-'}</p>
+            </div>
+            <div>
+              <p><strong>Telefone:</strong></p>
+              <p>${aluno.Telefone || '-'}</p>
+            </div>
+            <div>
+              <p><strong>Data de Nascimento:</strong></p>
+              <p>${aluno.DataNascimento ? new Date(aluno.DataNascimento).toLocaleDateString('pt-BR') : '-'}</p>
+            </div>
+            <div>
+              <p><strong>Idade:</strong></p>
+              <p>${aluno.Idade || '-'} anos</p>
+            </div>
+            <div>
+              <p><strong>Sexo:</strong></p>
+              <p>${aluno.Sexo || '-'}</p>
+            </div>
+            <div>
+              <p><strong>Profissão:</strong></p>
+              <p>${aluno.Profissao || '-'}</p>
+            </div>
+            <div>
+              <p><strong>Status:</strong></p>
+              <p>${aluno.StatusAluno || '-'}</p>
+            </div>
+          </div>
+          
+          <h3 style="margin-top: 24px; margin-bottom: 12px;">Informações Adicionais</h3>
+          
+          <div>
+            <p><strong>Endereço:</strong></p>
+            <p>${aluno.Endereco || '-'}</p>
+          </div>
+          
+          <div>
+            <p><strong>Doenças Preexistentes:</strong></p>
+            <p>${aluno.DoencasPreexistentes || '-'}</p>
+          </div>
+          
+          <div>
+            <p><strong>Medicamentos em Uso:</strong></p>
+            <p>${aluno.UsaMedicamentos || '-'}</p>
+          </div>
+          
+          <div>
+            <p><strong>Lesões:</strong></p>
+            <p>${aluno.Lesoes || '-'}</p>
+          </div>
+          
+          <div>
+            <p><strong>Restrições Médicas:</strong></p>
+            <p>${aluno.RestricoesMedicas || '-'}</p>
+          </div>
+        </div>
+      `;
+    })
+    .catch(error => {
+      console.error('Erro ao carregar aluno:', error);
+      mainContent.innerHTML = `
+        <div class="card">
+          <p>Erro ao carregar aluno: ${error.message}</p>
+          <button class="btn btn-secondary" onclick="showAlunos()">Voltar</button>
+        </div>
+      `;
+    });
+}
+
+/**
+ * Mostra formulário de cadastro de aluno
+ */
+function showCadastroAluno() {
+  const mainContent = document.querySelector('.content-area');
+  mainContent.innerHTML = getCadastroAlunoTemplate();
+  
+  // Adiciona event listener ao formulário
+  const form = document.getElementById('cadastroAlunoForm');
+  form.addEventListener('submit', handleCadastroAluno);
+
+  // Geração automática de senha baseada em Nome (padrão @R2-Nome-YYYY)
+  const nomeInput = document.getElementById('NomeCompleto');
+  const emailInput = document.getElementById('Email');
+  const senhaInput = document.getElementById('Senha');
+  const copyBtn = document.getElementById('copySenhaBtn');
+  const hint = document.getElementById('senhaHint');
+  const telInput = document.getElementById('Telefone');
+
+  function generateAlunoPassword(nome) {
+    const first = (nome || '').trim().split(/\s+/)[0] || 'Aluno';
+    const cleanFirst = first.normalize('NFD').replace(/[^\w]/g, '');
+    const year = new Date().getFullYear();
+    return `@R2-${cleanFirst}-${year}`;
+  }
+
+  function renderSenha() {
+    if (senhaInput) {
+      senhaInput.value = generateAlunoPassword(nomeInput?.value);
+    }
+    if (hint) hint.textContent = 'Uma senha padrão foi gerada automaticamente. Compartilhe com o aluno.';
+  }
+
+  renderSenha();
+  if (nomeInput) nomeInput.addEventListener('input', renderSenha);
+  if (emailInput) emailInput.addEventListener('input', renderSenha);
+  if (copyBtn && senhaInput) {
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(senhaInput.value).then(() => {
+        if (hint) hint.textContent = 'Senha copiada para a área de transferência.';
+        showToast('Senha copiada.', 'success');
+      });
+    });
+  }
+
+  // Máscara de telefone BR
+  function formatPhoneBR(v) {
+    const d = (v || '').toString().replace(/\D/g, '').slice(0, 11);
+    if (d.length <= 10) {
+      return d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4})(\d)/, '$1-$2').replace(/(-\d{4})\d+$/, '$1');
+    }
+    return d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').replace(/(-\d{4})\d+$/, '$1');
+  }
+  if (telInput) {
+    telInput.addEventListener('input', (e) => {
+      const before = e.target.value;
+      e.target.value = formatPhoneBR(e.target.value);
+    });
+  }
+  // Validação inline de duplicidade (email/telefone)
+  setupCadastroInlineValidation();
+}
+
+/**
+ * Processa cadastro de aluno
+ */
+function handleCadastroAluno(e) {
+  e.preventDefault();
+  
+  // Previne múltiplos envios
+  const formEl = e.target;
+  if (formEl.dataset.submitting === 'true') {
+    return;
+  }
+  formEl.dataset.submitting = 'true';
+  
+  const formData = new FormData(e.target);
+  const dadosAluno = {};
+  
+  for (let [key, value] of formData.entries()) {
+    dadosAluno[key] = value;
+  }
+
+  // Normaliza DataNascimento para ISO (yyyy-mm-dd) se presente
+  if (dadosAluno.DataNascimento) {
+    try {
+      const dn = String(dadosAluno.DataNascimento).trim();
+      const d = new Date(dn);
+      if (!isNaN(d.getTime())) {
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        dadosAluno.DataNascimento = `${yyyy}-${mm}-${dd}`;
+      }
+    } catch (e) {}
+  }
+
+  console.debug('[handleCadastroAluno] dadosAluno=', dadosAluno);
+  
+  const submitBtn = document.getElementById('submitBtn');
+  const successDiv = document.getElementById('successMessage');
+  const errorDiv = document.getElementById('errorMessage');
+  
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Cadastrando...';
+  successDiv.style.display = 'none';
+  errorDiv.style.display = 'none';
+  
+  // Verificação de duplicidade no frontend (mensagens específicas) e então cadastro
+  callAPI('apiListarAlunos', [AppState.token])
+    .then(listRes => {
+      if (!listRes || listRes.success !== true) {
+        throw new Error(listRes?.error || 'Falha ao verificar duplicidade.');
+      }
+      const alunos = listRes.alunos || [];
+      const normTel = (dadosAluno.Telefone || '').toString().replace(/\D/g, '');
+      let normDate = '';
+      if (dadosAluno.DataNascimento) {
+        const d = new Date(dadosAluno.DataNascimento);
+        if (!isNaN(d.getTime())) {
+          const yyyy = d.getFullYear();
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          normDate = `${yyyy}-${mm}-${dd}`;
+        }
+      }
+      let dupPhone = false;
+      let dupDateName = false;
+      const nomeLower = (dadosAluno.NomeCompleto || '').trim().toLowerCase();
+      alunos.forEach(a => {
+        const aTel = (a.Telefone || '').toString().replace(/\D/g, '');
+        if (aTel && normTel && aTel === normTel) dupPhone = true;
+        let aDate = '';
+        if (a.DataNascimento) {
+          const ad = new Date(a.DataNascimento);
+          if (!isNaN(ad.getTime())) {
+            const yyyy = ad.getFullYear();
+            const mm = String(ad.getMonth() + 1).padStart(2, '0');
+            const dd = String(ad.getDate()).padStart(2, '0');
+            aDate = `${yyyy}-${mm}-${dd}`;
+          }
+        }
+        const aNomeLower = String(a.NomeCompleto || '').trim().toLowerCase();
+        if (aDate && normDate && aDate === normDate && aNomeLower && nomeLower && aNomeLower === nomeLower) {
+          dupDateName = true;
+        }
+      });
+      if (dupPhone || dupDateName) {
+        let msg = 'Duplicidade detectada: ';
+        if (dupPhone) msg = 'Telefone de usuário já cadastrado.';
+        else if (dupDateName) msg = 'Data de nascimento para este usuário já cadastrada.';
+        msg += ' Verifique a lista de alunos e edite o cadastro existente caso deseje alterar informações.';
+        errorDiv.textContent = msg;
+        errorDiv.style.display = 'block';
+        throw new Error('Duplicidade detectada no frontend');
+      }
+      return callAPI('apiCadastrarAluno', [AppState.token, dadosAluno]);
+    })
+    .then(response => {
+      if (response.success) {
+        successDiv.textContent = response.message;
+        successDiv.style.display = 'block';
+        console.debug('[handleCadastroAluno] alunoId gerado=', response.alunoId);
+        const nome = dadosAluno.NomeCompleto || '';
+        showToast(`Aluno ${nome} cadastrado com sucesso!`, 'success');
+        e.target.reset();
+        
+        setTimeout(() => {
+          showAlunos();
+        }, 1000);
+      } else {
+        // Exibe erro amigável (ex.: duplicidade)
+        const base = response.error || 'Erro ao cadastrar aluno.';
+        const extra = /cadastrad/i.test(base) ? ' Verifique a lista de alunos e edite o cadastro existente caso deseje alterar informações.' : '';
+  errorDiv.textContent = base + extra;
+  errorDiv.style.display = 'block';
+  showToast(base, 'error');
+      }
+    })
+    .catch(error => {
+      console.error('Erro ao cadastrar aluno:', error);
+      errorDiv.textContent = error.message || 'Erro ao cadastrar aluno.';
+      errorDiv.style.display = 'block';
+    })
+    .finally(() => {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Cadastrar Aluno';
+      delete formEl.dataset.submitting;
+    });
+}
+
+/**
+ * Alterna status Ativo/Inativo diretamente na lista
+ */
+function toggleAlunoStatus(alunoId, isChecked) {
+  const status = isChecked ? 'Ativo' : 'Inativo';
+  const row = document.querySelector(`[data-aluno-id="${alunoId}"]`)?.closest('tr');
+  const cellDiv = row ? row.querySelector('td:nth-child(4) .status-cell') : null;
+  const chk = document.querySelector(`input[data-aluno-id="${alunoId}"]`);
+  if (cellDiv) cellDiv.classList.add('loading');
+  if (chk) chk.disabled = true;
+  callAPI('apiAtualizarStatusAluno', [AppState.token, alunoId, status])
+    .then(res => {
+      if (!res || res.success !== true) throw new Error(res?.error || 'Falha ao atualizar status');
+      // Atualiza label de status no DOM
+      if (row) {
+        const statusLabel = row.querySelector('td:nth-child(4) .status-text');
+        if (statusLabel) statusLabel.textContent = status;
+      }
+      showToast('Status atualizado para ' + status + '.', 'success');
+    })
+    .catch(err => {
+      showToast('Erro ao atualizar status: ' + (err.message || err), 'error');
+      // Reverte checkbox
+      if (chk) chk.checked = !isChecked;
+    })
+    .finally(() => {
+      if (cellDiv) cellDiv.classList.remove('loading');
+      if (chk) chk.disabled = false;
+    });
+}
+
+/**
+ * Abre tela de edição do aluno
+ */
+function editAluno(alunoId) {
+  const mainContent = document.querySelector('.content-area');
+  mainContent.innerHTML = getSkeletonLoader('formulario');
+  callAPI('apiGetAluno', [AppState.token, alunoId])
+    .then(res => {
+      if (!res || res.success !== true) throw new Error(res?.error || 'Erro ao carregar aluno');
+      mainContent.innerHTML = getEditarAlunoTemplate(res.aluno);
+      // Máscara no telefone da edição
+      const tel = document.getElementById('ed_Telefone');
+      if (tel) {
+        tel.addEventListener('input', (e) => {
+          const d = (e.target.value || '').toString().replace(/\D/g, '').slice(0, 11);
+          const v = d.length <= 10
+            ? d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4})(\d)/, '$1-$2').replace(/(-\d{4})\d+$/, '$1')
+            : d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').replace(/(-\d{4})\d+$/, '$1');
+          e.target.value = v;
+        });
+      }
+      // Toggle status em tempo real na edição
+      const chkStatus = document.getElementById('ed_StatusAluno');
+      if (chkStatus) {
+        chkStatus.addEventListener('change', (e) => {
+          toggleAlunoStatusInEdit(res.aluno.ID_Aluno, e.target.checked);
+        });
+      }
+    })
+    .catch(err => {
+      mainContent.innerHTML = `<div class="card"><p>Erro: ${err.message || err}</p><button class="btn btn-secondary" onclick="showAlunos()">Voltar</button></div>`;
+    });
+}
+
+/**
+ * Salva alterações do aluno (edição)
+ */
+function handleSalvarEdicaoAluno() {
+  const form = document.getElementById('editarAlunoForm');
+  if (!form) return;
+  const alunoId = form.getAttribute('data-aluno-id');
+  const nome = document.getElementById('ed_NomeCompleto')?.value || '';
+  const email = document.getElementById('ed_Email')?.value || '';
+  const tel = document.getElementById('ed_Telefone')?.value || '';
+  const ativo = document.getElementById('ed_StatusAluno')?.checked;
+  const payload = { NomeCompleto: nome, Email: email, Telefone: tel, StatusAluno: ativo ? 'Ativo' : 'Inativo' };
+  const successDiv = document.getElementById('successMessage');
+  const errorDiv = document.getElementById('errorMessage');
+  const btn = document.getElementById('btnSalvarEdicao');
+  successDiv.style.display = 'none';
+  errorDiv.style.display = 'none';
+  if (btn) { btn.disabled = true; const t = btn.querySelector('.btn-text'); if (t) t.textContent = 'Salvando...'; }
+  callAPI('apiAtualizarAluno', [AppState.token, alunoId, payload])
+    .then(res => {
+      if (!res || res.success !== true) throw new Error(res?.error || 'Falha ao salvar alterações');
+      successDiv.textContent = 'Aluno atualizado com sucesso.';
+      successDiv.style.display = 'block';
+      showToast('Alterações salvas com sucesso.', 'success');
+      setTimeout(() => showAlunos(), 1000);
+    })
+    .catch(err => {
+      errorDiv.textContent = err.message || 'Erro ao salvar alterações.';
+      errorDiv.style.display = 'block';
+      showToast(err.message || 'Erro ao salvar alterações.', 'error');
+    })
+    .finally(() => {
+      if (btn) { btn.disabled = false; const t = btn.querySelector('.btn-text'); if (t) t.textContent = 'Salvar Alterações'; }
+    });
+}
+
+/**
+ * Mostra o dashboard do aluno
+ */
+function showAlunoDashboard() {
+  AppState.currentView = 'aluno-dashboard';
+  const app = document.getElementById('app');
+  app.innerHTML = getAlunoDashboardTemplate();
+
+  // Evento de logout
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+
+  // Carrega dados do aluno e define aba padrão
+  loadAlunoDashboard();
+  const defaultTab = AppState.nextAlunoTab || 'dashboard';
+  selectAlunoTab(defaultTab);
+  // Consome a intenção para não interferir em navegações futuras
+  AppState.nextAlunoTab = null;
+}
+
+/**
+ * Carrega dados do dashboard do aluno
+ */
+function loadAlunoDashboard() {
+  const loadingDiv = document.getElementById('alunoLoading');
+  const tabsWrapper = document.getElementById('alunoTabs');
+  if (loadingDiv) loadingDiv.style.display = 'block';
+  
+  callAPI('apiAlunoDashboard', [AppState.token])
+    .then(response => {
+      if (response.success) {
+        if (loadingDiv) loadingDiv.style.display = 'none';
+        if (tabsWrapper) tabsWrapper.style.display = 'block';
+        
+        // Persiste o aluno no estado para uso em outras telas (minhas avaliações/treinos)
+        AppState.aluno = response.aluno || null;
+        if (AppState.user && response.aluno && response.aluno.ID_Aluno && !AppState.user.ID_Aluno) {
+          AppState.user.ID_Aluno = response.aluno.ID_Aluno;
+        }
+
+        // Atualiza card de perfil
+        const nomeEl = document.getElementById('alunoNomeDashboard');
+        const emailEl = document.getElementById('alunoEmailDashboard');
+        const statusEl = document.getElementById('alunoStatusDashboard');
+        if (nomeEl) nomeEl.textContent = response.aluno?.NomeCompleto || 'Não informado';
+        if (emailEl) emailEl.textContent = response.aluno?.Email || 'Não informado';
+        if (statusEl) statusEl.textContent = response.aluno?.StatusAluno || 'Inativo';
+
+        // Atualiza contadores nos cards de acesso rápido
+        const countAval = document.getElementById('countAvaliacoes');
+        const countTre = document.getElementById('countTreinos');
+        if (countAval) countAval.textContent = (response.avaliacoes || []).length;
+        if (countTre) countTre.textContent = (response.treinos || []).length;
+
+        // Armazena dados para uso nas abas
+        AppState.alunoData = {
+          avaliacoes: response.avaliacoes || [],
+          treinos: response.treinos || [],
+          aluno: response.aluno || {}
+        };
+
+        // Pré-renderiza listas (rápidas)
+        renderAlunoAvaliacoesList(AppState.alunoData.avaliacoes);
+        renderAlunoTreinosList(AppState.alunoData.treinos);
+      }
+    })
+    .catch(error => {
+      console.error('Erro ao carregar dashboard do aluno:', error);
+      if (loadingDiv) loadingDiv.innerHTML = '<p>Erro ao carregar dados.</p>';
+    });
+}
+
+/**
+ * Alterna abas do Aluno (Samsung-style)
+ */
+function selectAlunoTab(tab) {
+  const tabs = document.querySelectorAll('.samsung-tab');
+  tabs.forEach(t => {
+    const isActive = t.getAttribute('data-tab') === tab;
+    t.classList.toggle('active', isActive);
+    t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  const sections = {
+    dashboard: document.getElementById('aluno-tab-dashboard'),
+    avaliacoes: document.getElementById('aluno-tab-avaliacoes'),
+    treinos: document.getElementById('aluno-tab-treinos'),
+    evolucao: document.getElementById('aluno-tab-evolucao')
+  };
+  Object.keys(sections).forEach(k => sections[k]?.classList.remove('active'));
+  sections[tab]?.classList.add('active');
+
+  // Lazy init da evolução
+  if (tab === 'evolucao') {
+    const container = document.getElementById('alunoEvolucaoContainer');
+    if (container && container.childElementCount === 0 && AppState.alunoData) {
+      container.innerHTML = getEvolucaoTemplate(AppState.alunoData.avaliacoes, AppState.alunoData.treinos, AppState.alunoData.aluno);
+      setTimeout(() => initializeEvolucaoCharts(AppState.alunoData.avaliacoes, AppState.alunoData.treinos, AppState.alunoData.aluno), 50);
+    }
+  }
+}
+
+/**
+ * Exibe skeleton loader enquanto carrega avaliações
+ */
+function showAvaliacoesSkeletonLoader() {
+  const cont = document.getElementById('alunoAvalsContainer');
+  if (!cont) return;
+  cont.innerHTML = `
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5" role="status" aria-label="Carregando avaliações">
+      <div class="flex gap-4">
+        <div class="skeleton w-12 h-12 rounded-lg"></div>
+        <div class="flex-1">
+          <div class="skeleton skeleton-text w-3/4"></div>
+          <div class="skeleton skeleton-text w-1/2"></div>
+          <div class="flex gap-2 mt-3">
+            <div class="skeleton w-16 h-6"></div>
+            <div class="skeleton w-16 h-6"></div>
+            <div class="skeleton w-16 h-6"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+      <div class="flex gap-4">
+        <div class="skeleton w-12 h-12 rounded-lg"></div>
+        <div class="flex-1">
+          <div class="skeleton skeleton-text w-3/4"></div>
+          <div class="skeleton skeleton-text w-1/2"></div>
+          <div class="flex gap-2 mt-3">
+            <div class="skeleton w-16 h-6"></div>
+            <div class="skeleton w-16 h-6"></div>
+            <div class="skeleton w-16 h-6"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Exibe skeleton loader enquanto carrega treinos
+ */
+function showTreinosSkeletonLoader() {
+  const cont = document.getElementById('alunoTreinosContainer');
+  if (!cont) return;
+  cont.innerHTML = `
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5" role="status" aria-label="Carregando treinos">
+      <div class="flex gap-4">
+        <div class="skeleton w-12 h-12 rounded-lg"></div>
+        <div class="flex-1">
+          <div class="skeleton skeleton-text w-2/3"></div>
+          <div class="skeleton skeleton-text w-1/3"></div>
+          <div class="skeleton w-24 h-8 mt-3"></div>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+      <div class="flex gap-4">
+        <div class="skeleton w-12 h-12 rounded-lg"></div>
+        <div class="flex-1">
+          <div class="skeleton skeleton-text w-2/3"></div>
+          <div class="skeleton skeleton-text w-1/3"></div>
+          <div class="skeleton w-24 h-8 mt-3"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Renderiza cards de avaliações do aluno dentro do container da aba
+ */
+function renderAlunoAvaliacoesList(avaliacoes) {
+  const cont = document.getElementById('alunoAvalsContainer');
+  if (!cont) return;
+  if (!avaliacoes || avaliacoes.length === 0) {
+    cont.innerHTML = '<p class="text-r2-text-muted">Você ainda não possui avaliações registradas.</p>';
+    return;
+  }
+  // Descobre a avaliação mais recente por DataAvaliacao
+  let latestTs = -Infinity;
+  avaliacoes.forEach(a => {
+    if (a.DataAvaliacao) {
+      const ts = new Date(a.DataAvaliacao).getTime();
+      if (!isNaN(ts)) latestTs = Math.max(latestTs, ts);
+    }
+  });
+  let html = '';
+  avaliacoes.forEach(avaliacao => {
+    const dataAvaliacao = avaliacao.DataAvaliacao ? new Date(avaliacao.DataAvaliacao).toLocaleDateString('pt-BR') : '-';
+    const id = avaliacao.ID_Avaliacao || '-';
+  const pressao = avaliacao.PressaoArterial || '-';
+    const fc = avaliacao.FC_Repouso ? `${avaliacao.FC_Repouso} bpm` : '-';
+    const peso = avaliacao.Peso ? `${avaliacao.Peso} kg` : '-';
+    const altura = avaliacao.Altura ? `${avaliacao.Altura} cm` : '-';
+    const pg = parseFloat(avaliacao.PercentualGordura) || 0;
+    const pm = parseFloat(avaliacao.PercentualMassaMagra) || 0;
+    const ph = parseFloat(avaliacao.PercentualHidrico) || 0;
+    const total = (pg + pm + ph) || 0;
+    const norm = (v) => total > 0 ? Math.max(0, Math.min(100, (v / total) * 100)) : 0;
+    const pgN = norm(pg).toFixed(2);
+    const pmN = norm(pm).toFixed(2);
+    const phN = norm(ph).toFixed(2);
+    const isLatest = avaliacao.DataAvaliacao && !isNaN(new Date(avaliacao.DataAvaliacao).getTime()) && new Date(avaliacao.DataAvaliacao).getTime() === latestTs;
+    html += `
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition p-5">
+        <div class="flex gap-4">
+          <div class="flex-shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-pink-100 to-red-100 flex items-center justify-center">
+            <span class="material-icons text-pink-600">monitor_heart</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-base font-semibold text-r2-text">Avaliação física • ${dataAvaliacao}</span>
+              ${isLatest ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium"><span class="material-icons text-xs">star</span> Última</span>' : ''}
+            </div>
+            <div class="mb-3">
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-100 text-gray-700 text-xs">
+                <span class="material-icons text-xs">tag</span> ID ${id}
+              </span>
+            </div>
+            <div class="flex flex-wrap gap-2 mb-3">
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-pink-50 text-pink-700 text-xs"><span class="material-icons text-xs">favorite</span> ${pressao}</span>
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 text-red-700 text-xs"><span class="material-icons text-xs">monitor_heart</span> ${fc}</span>
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-700 text-xs"><span class="material-icons text-xs">scale</span> ${peso}</span>
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-cyan-50 text-cyan-700 text-xs"><span class="material-icons text-xs">straighten</span> ${altura}</span>
+            </div>
+            <div class="w-full h-2 rounded-full overflow-hidden bg-gray-100 mb-2">
+              <div class="flex h-full">
+                <div class="bg-orange-400" style="width:${pgN}%"></div>
+                <div class="bg-green-500" style="width:${pmN}%"></div>
+                <div class="bg-blue-500" style="width:${phN}%"></div>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-3 text-xs text-r2-text-muted mb-3">
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-orange-400"></span>Gordura ${avaliacao.PercentualGordura ? avaliacao.PercentualGordura + '%' : '-'}</span>
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span>Massa magra ${avaliacao.PercentualMassaMagra ? avaliacao.PercentualMassaMagra + '%' : '-'}</span>
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span>Hídrico ${avaliacao.PercentualHidrico ? avaliacao.PercentualHidrico + '%' : '-'}</span>
+            </div>
+            <button class="px-5 py-2.5 rounded-lg bg-r2-primary text-white font-medium text-sm hover:bg-r2-secondary transition-colors" onclick="viewAvaliacao('${id}')">Ver detalhes</button>
+          </div>
+        </div>
+      </div>`;
+  });
+  cont.innerHTML = html;
+}
+
+/**
+ * Renderiza cards de treinos do aluno na aba
+ */
+function renderAlunoTreinosList(treinos) {
+  const cont = document.getElementById('alunoTreinosContainer');
+  if (!cont) return;
+  if (!treinos || treinos.length === 0) {
+    cont.innerHTML = '<p class="text-r2-text-muted">Você ainda não possui treinos cadastrados.</p>';
+    return;
+  }
+  let html = '';
+  treinos.forEach(treino => {
+    const dataInicio = treino.DataInicio ? new Date(treino.DataInicio).toLocaleDateString('pt-BR') : '-';
+    const dataFim = treino.DataFim ? new Date(treino.DataFim).toLocaleDateString('pt-BR') : '-';
+    const isActive = String(treino.Status).toLowerCase() === 'ativo';
+    html += `
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition p-5">
+        <div class="flex gap-4">
+          <div class="flex-shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-purple-100 to-indigo-100 flex items-center justify-center">
+            <span class="material-icons text-purple-600">fitness_center</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-base font-semibold text-r2-text mb-3">Treino • Início ${dataInicio}</div>
+            <div class="flex flex-wrap gap-2 mb-3">
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-100 text-gray-700 text-xs">
+                <span class="material-icons text-xs">tag</span> ID ${treino.ID_Treino || '-'}
+              </span>
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-700 text-xs">
+                <span class="material-icons text-xs">event</span> Início: ${dataInicio}
+              </span>
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-cyan-50 text-cyan-700 text-xs">
+                <span class="material-icons text-xs">event</span> Fim: ${dataFim}
+              </span>
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md ${isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'} text-xs">
+                <span class="material-icons text-xs">fiber_manual_record</span> ${treino.Status || '-'}
+              </span>
+            </div>
+            <button class="px-5 py-2.5 rounded-lg bg-r2-primary text-white font-medium text-sm hover:bg-r2-secondary transition-colors" onclick="viewTreino('${treino.ID_Treino}')">Ver detalhes</button>
+          </div>
+        </div>
+      </div>`;
+  });
+  cont.innerHTML = html;
+}
+
+/**
+ * Configura navegação
+ */
+function setupNavigation() {
+  // Toggle sidebar em mobile
+  const menuToggle = document.getElementById('menuToggle');
+  const sidebar = document.querySelector('.sidebar');
+  
+  if (menuToggle) {
+    menuToggle.addEventListener('click', () => {
+      sidebar.classList.toggle('active');
+    });
+  }
+  
+  // Navegação
+  const navItems = document.querySelectorAll('.nav-item');
+  navItems.forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      
+      // Remove active de todos
+      navItems.forEach(i => i.classList.remove('active'));
+      
+      // Adiciona active no clicado
+      item.classList.add('active');
+      
+      // Fecha sidebar em mobile
+      if (window.innerWidth <= 768) {
+        sidebar.classList.remove('active');
+      }
+      
+      // Navega
+      const view = item.getAttribute('data-view');
+      navigateTo(view);
+    });
+  });
+  
+  // Logout
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', handleLogout);
+  }
+}
+
+/**
+ * Navega para uma view específica
+ */
+function navigateTo(view) {
+  switch(view) {
+    case 'dashboard':
+      if (AppState.user.Perfil === 'MASTER') {
+        showProfessorDashboard();
+      } else {
+        showAlunoDashboard();
+      }
+      break;
+    case 'alunos':
+      showAlunos();
+      break;
+    case 'usuarios':
+      showUsuarios();
+      break;
+    case 'cadastro-aluno':
+      showCadastroAluno();
+      break;
+    case 'avaliacoes':
+      showAvaliacoes();
+      break;
+    case 'cadastro-avaliacao':
+      showCadastroAvaliacao();
+      break;
+    case 'treinos':
+      showTreinos();
+      break;
+    case 'cadastro-treino':
+      showCadastroTreino();
+      break;
+    case 'minhas-avaliacoes':
+      showMinhasAvaliacoes();
+      break;
+    case 'meus-treinos':
+      showMeusTreinos();
+      break;
+    case 'minha-evolucao':
+      showMinhaEvolucao();
+      break;
+    default:
+      console.log('View não implementada:', view);
+  }
+}
+
+/**
+ * Mostra a lista de usuários (USERS)
+ */
+function showUsuarios() {
+  const mainContent = document.querySelector('.content-area');
+  mainContent.innerHTML = '<div class="loading active"><div class="spinner"></div><p>Carregando usuários...</p></div>';
+  
+  callAPI('apiListarUsuarios', [AppState.token])
+    .then(response => {
+      if (!response || response.success !== true) {
+        const msg = (response && response.error) ? response.error : 'Resposta inválida do servidor';
+        throw new Error(msg);
+      }
+      mainContent.innerHTML = getUsuariosListTemplate(response.usuarios || []);
+    })
+    .catch(error => {
+      console.error('Erro ao carregar usuários:', error);
+      mainContent.innerHTML = '<div class="card"><p>Erro ao carregar usuários.</p></div>';
+      showToast('Erro ao carregar usuários.', 'error');
+    });
+}
+
+/**
+ * Toggle do status de um usuário (Ativo/Inativo)
+ */
+function toggleUserStatus(userId, isChecked) {
+  const newStatus = isChecked ? 'Ativo' : 'Inativo';
+  const statusCell = event.target.closest('.status-cell');
+  const statusText = statusCell.querySelector('.status-text');
+  const switchEl = statusCell.querySelector('.switch');
+  const oldText = statusText.textContent;
+  
+  // Ativa loader
+  statusCell.classList.add('loading');
+  statusText.textContent = newStatus;
+  
+  callAPI('apiAtualizarStatusUsuario', [AppState.token, userId, newStatus])
+    .then(response => {
+      if (!response || response.success !== true) {
+        // Rollback em caso de erro
+        event.target.checked = !isChecked;
+        statusText.textContent = oldText;
+        throw new Error(response?.error || 'Erro ao atualizar status');
+      }
+      showToast('Status atualizado com sucesso.', 'success');
+    })
+    .catch(error => {
+      console.error('Erro ao atualizar status:', error);
+      showToast(error.message || 'Erro ao atualizar status.', 'error');
+      // Garantir rollback
+      event.target.checked = !isChecked;
+      statusText.textContent = oldText;
+    })
+    .finally(() => {
+      statusCell.classList.remove('loading');
+    });
+}
+
+/**
+ * Toggle sidebar
+ */
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  sidebar.classList.toggle('active');
+}
+
+/**
+ * Setup de validação inline no cadastro: verifica duplicidade de email/telefone
+ */
+function setupCadastroInlineValidation() {
+  const emailInput = document.getElementById('Email');
+  const telInput = document.getElementById('Telefone');
+  const emailHint = document.getElementById('EmailDupHint');
+  const telHint = document.getElementById('TelefoneDupHint');
+  let alunosCache = null;
+  let cacheTime = 0;
+
+  function getAlunosCached() {
+    const now = Date.now();
+    if (alunosCache && (now - cacheTime) < 10000) {
+      return Promise.resolve(alunosCache);
+    }
+    return callAPI('apiListarAlunos', [AppState.token]).then(res => {
+      if (res && res.success) {
+        alunosCache = res.alunos || [];
+        cacheTime = now;
+        return alunosCache;
+      }
+      return [];
+    }).catch(() => []);
+  }
+
+  function normPhone(v) { return (v || '').toString().replace(/\D/g, ''); }
+
+  if (emailInput) {
+    emailInput.addEventListener('blur', () => {
+      const email = (emailInput.value || '').trim().toLowerCase();
+      if (!email) { if (emailHint) emailHint.style.display = 'none'; return; }
+      getAlunosCached().then(alunos => {
+        const dup = alunos.some(a => String(a.Email || '').trim().toLowerCase() === email);
+        if (emailHint) emailHint.style.display = dup ? 'block' : 'none';
+      });
+    });
+  }
+  if (telInput) {
+    telInput.addEventListener('blur', () => {
+      const tel = normPhone(telInput.value);
+      if (!tel) { if (telHint) telHint.style.display = 'none'; return; }
+      getAlunosCached().then(alunos => {
+        const dup = alunos.some(a => normPhone(a.Telefone) === tel);
+        if (telHint) telHint.style.display = dup ? 'block' : 'none';
+      });
+    });
+  }
+}
+
+/**
+ * Toast simples para feedback rápido
+ */
+function showToast(message, type='info') {
+  let container = document.getElementById('toastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.style.position = 'fixed';
+    container.style.right = '16px';
+    container.style.bottom = '16px';
+    container.style.zIndex = '9999';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.textContent = message;
+  toast.style.background = type === 'success' ? '#2e7d32' : (type === 'error' ? '#c62828' : '#424242');
+  toast.style.color = '#fff';
+  toast.style.padding = '10px 14px';
+  toast.style.marginTop = '8px';
+  toast.style.borderRadius = '6px';
+  toast.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)';
+  toast.style.fontSize = '14px';
+  toast.style.opacity = '0';
+  toast.style.transition = 'opacity .2s ease';
+  container.appendChild(toast);
+  requestAnimationFrame(() => { toast.style.opacity = '1'; });
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => { if (toast.parentNode === container) container.removeChild(toast); }, 200);
+  }, 2000);
+}
+
+/**
+ * Toggle status na tela de edição com loader local
+ */
+function toggleAlunoStatusInEdit(alunoId, isChecked) {
+  const status = isChecked ? 'Ativo' : 'Inativo';
+  const cell = document.getElementById('editStatusCell');
+  const chk = document.getElementById('ed_StatusAluno');
+  const text = document.getElementById('ed_StatusText');
+  if (cell) cell.classList.add('loading');
+  if (chk) chk.disabled = true;
+  callAPI('apiAtualizarStatusAluno', [AppState.token, alunoId, status])
+    .then(res => {
+      if (!res || res.success !== true) throw new Error(res?.error || 'Falha ao atualizar status');
+      if (text) text.textContent = status;
+      showToast('Status atualizado para ' + status + '.', 'success');
+    })
+    .catch(err => {
+      if (chk) chk.checked = !isChecked;
+      showToast(err.message || 'Erro ao atualizar status.', 'error');
+    })
+    .finally(() => {
+      if (cell) cell.classList.remove('loading');
+      if (chk) chk.disabled = false;
+    });
+}
+
+// ========================================
+// MÓDULO: AVALIAÇÕES
+// ========================================
+
+/**
+ * Mostra lista de avaliações (todas ou filtradas por aluno)
+ */
+function showAvaliacoes(alunoId = null) {
+  const mainContent = document.querySelector('.content-area');
+  mainContent.innerHTML = getSkeletonLoader('lista');
+  
+  const endpoint = alunoId ? 'apiListarAvaliacoes' : 'apiListarTodasAvaliacoes';
+  const args = alunoId ? [AppState.token, alunoId] : [AppState.token];
+  
+  callAPI(endpoint, args)
+    .then(response => {
+      if (!response || response.success !== true) {
+        throw new Error(response?.error || 'Erro ao carregar avaliações');
+      }
+      mainContent.innerHTML = getAvaliacoesListTemplate(response.avaliacoes || [], alunoId);
+    })
+    .catch(error => {
+      console.error('Erro ao carregar avaliações:', error);
+      mainContent.innerHTML = '<div class="card"><p>Erro ao carregar avaliações.</p></div>';
+      showToast('Erro ao carregar avaliações.', 'error');
+    });
+}
+
+/**
+ * Mostra formulário de cadastro de avaliação
+ */
+function showCadastroAvaliacao(alunoId = null) {
+  const mainContent = document.querySelector('.content-area');
+  
+  // Se não tem alunoId, precisa carregar lista de alunos primeiro
+  if (!alunoId) {
+    mainContent.innerHTML = getSkeletonLoader('formulario');
+    callAPI('apiListarAlunos', [AppState.token])
+      .then(response => {
+        if (!response || response.success !== true) {
+          throw new Error(response?.error || 'Erro ao carregar alunos');
+        }
+        mainContent.innerHTML = getCadastroAvaliacaoTemplate(response.alunos || []);
+        setupCadastroAvaliacaoForm();
+      })
+      .catch(error => {
+        console.error('Erro ao carregar alunos:', error);
+        mainContent.innerHTML = '<div class="card"><p>Erro ao carregar formulário.</p></div>';
+        showToast('Erro ao carregar formulário.', 'error');
+      });
+  } else {
+    mainContent.innerHTML = getCadastroAvaliacaoTemplate([], alunoId);
+    setupCadastroAvaliacaoForm();
+  }
+}
+
+/**
+ * Configura form de cadastro de avaliação
+ */
+function setupCadastroAvaliacaoForm() {
+  const form = document.getElementById('cadastroAvaliacaoForm');
+  if (!form) return;
+  
+  form.addEventListener('submit', handleCadastroAvaliacao);
+  
+  // Normalização de números (vírgula → ponto)
+  const numericInputs = form.querySelectorAll('input[type="number"], input[data-numeric="true"]');
+  numericInputs.forEach(input => {
+    input.addEventListener('blur', (e) => {
+      const val = e.target.value.replace(',', '.');
+      e.target.value = val;
+    });
+  });
+}
+
+/**
+ * Processa cadastro de avaliação
+ */
+function handleCadastroAvaliacao(e) {
+  e.preventDefault();
+  
+  const formEl = e.target;
+  if (formEl.dataset.submitting === 'true') return;
+  formEl.dataset.submitting = 'true';
+  
+  const formData = new FormData(e.target);
+  const dados = {};
+  
+  for (let [key, value] of formData.entries()) {
+    // Normaliza números
+    if (value && typeof value === 'string' && value.includes(',')) {
+      dados[key] = value.replace(',', '.');
+    } else {
+      dados[key] = value;
+    }
+  }
+  
+  // Validação mínima
+  if (!dados.ID_Aluno || !dados.DataAvaliacao) {
+    showToast('Aluno e Data da Avaliação são obrigatórios.', 'error');
+    delete formEl.dataset.submitting;
+    return;
+  }
+  
+  const submitBtn = form.querySelector('[type="submit"]');
+  const btnText = submitBtn?.querySelector('.btn-text');
+  if (submitBtn) submitBtn.disabled = true;
+  if (btnText) btnText.textContent = 'Salvando...';
+  
+  callAPI('apiCadastrarAvaliacao', [AppState.token, dados])
+    .then(response => {
+      if (!response || response.success !== true) {
+        throw new Error(response?.error || 'Erro ao cadastrar avaliação');
+      }
+      showToast('Avaliação cadastrada com sucesso!', 'success');
+      setTimeout(() => showAvaliacoes(dados.ID_Aluno), 800);
+    })
+    .catch(error => {
+      console.error('Erro ao cadastrar avaliação:', error);
+      showToast(error.message || 'Erro ao cadastrar avaliação.', 'error');
+    })
+    .finally(() => {
+      if (submitBtn) submitBtn.disabled = false;
+      if (btnText) btnText.textContent = 'Salvar Avaliação';
+      delete formEl.dataset.submitting;
+    });
+}
+
+/**
+ * Visualiza detalhes de uma avaliação específica
+ */
+function viewAvaliacao(avaliacaoId) {
+  // Se estiver na landing, renderiza inline na seção de detalhe para sensação de página única
+  const detailCont = document.getElementById('landingDetailContainer');
+  if (detailCont) {
+    AppState.landingPrevSection = 'avaliacoes';
+    // Mostra a seção de detalhe e oculta as demais
+    try {
+      const sections = ['#section-hero','#section-info','#section-avaliacoes','#section-treinos','#section-evolucao'];
+      sections.forEach(sel => { const el = document.querySelector(sel); if (el) el.style.display = 'none'; });
+      const detailSec = document.getElementById('section-detail');
+      if (detailSec) detailSec.style.display = 'block';
+      detailCont.innerHTML = getSkeletonLoader('detalhes');
+      history.pushState({ section: '#section-detail', detail: `avaliacao-${avaliacaoId}` }, '', `#avaliacao-${avaliacaoId}`);
+    } catch(e) { console.warn('[viewAvaliacao] inline detail fallback', e); }
+  }
+  // Container padrão (professor) ou fallback total
+  const mainContent = detailCont || document.querySelector('.content-area') || document.getElementById('app');
+  if (!mainContent) { console.error('[viewAvaliacao] Sem container'); showToast('Não foi possível abrir a avaliação.', 'error'); return; }
+  mainContent.innerHTML = getSkeletonLoader('detalhes');
+  
+  callAPI('apiGetAvaliacao', [AppState.token, avaliacaoId])
+    .then(response => {
+      if (!response || response.success !== true) {
+        throw new Error(response?.error || 'Erro ao carregar avaliação');
+      }
+      
+      const avaliacaoAtual = response.avaliacao;
+      const avaliacaoAnterior = response.avaliacaoAnterior || null;
+      const aluno = response.aluno || null;
+      
+      mainContent.innerHTML = getAcompanhamentoAvaliacaoTemplate(avaliacaoAtual, avaliacaoAnterior, aluno);
+    })
+    .catch(error => {
+      console.error('Erro ao carregar avaliação:', error);
+      mainContent.innerHTML = '<div class="card"><p>Erro ao carregar avaliação.</p></div>';
+      showToast('Erro ao carregar avaliação.', 'error');
+    });
+}
+
+/**
+ * Voltar da tela de Acompanhamento de Avaliação respeitando o perfil atual
+ */
+function goBackFromAvaliacao() {
+  try {
+    // Se estamos no modo detalhe inline na landing, apenas restaurar a seção anterior
+    const detailSec = document.getElementById('section-detail');
+    const detailCont = document.getElementById('landingDetailContainer');
+    if (detailSec && detailCont && detailSec.style.display !== 'none') {
+      const prev = AppState.landingPrevSection || 'avaliacoes';
+      detailCont.innerHTML = '';
+      detailSec.style.display = 'none';
+      const sections = ['#section-hero','#section-info','#section-avaliacoes','#section-treinos','#section-evolucao'];
+      sections.forEach(sel => { const el = document.querySelector(sel); if (el) el.style.display = ''; });
+      const target = document.getElementById(`section-${prev}`);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      AppState.landingPrevSection = null;
+      return;
+    }
+    const perfil = AppState?.user?.Perfil;
+    if (perfil === 'ALUNO') {
+      // Preferência: voltar para a landing scroll na seção de avaliações
+      AppState.nextAlunoSection = 'avaliacoes';
+      showAlunoLanding();
+      // Fallback: manter compatibilidade com as abas se a landing não estiver disponível
+      AppState.nextAlunoTab = 'avaliacoes';
+      return;
+    }
+    // Perfil MASTER/PROF: voltar para listagem padrão
+    if (typeof showAvaliacoes === 'function') {
+      showAvaliacoes();
+      return;
+    }
+    // Fallback de segurança
+    showToast('Não foi possível voltar. Recarregue a página.', 'error');
+  } catch (e) {
+    console.error('[goBackFromAvaliacao] erro:', e);
+    showToast('Navegação indisponível no momento.', 'error');
+  }
+}
+
+/** Volta do detalhe de treino respeitando contexto de landing/professor */
+function goBackFromTreino() {
+  try {
+    const detailSec = document.getElementById('section-detail');
+    const detailCont = document.getElementById('landingDetailContainer');
+    if (detailSec && detailCont && detailSec.style.display !== 'none') {
+      const prev = AppState.landingPrevSection || 'treinos';
+      detailCont.innerHTML = '';
+      detailSec.style.display = 'none';
+      ['#section-hero','#section-info','#section-avaliacoes','#section-treinos','#section-evolucao'].forEach(sel => {
+        const el = document.querySelector(sel); if (el) el.style.display = '';
+      });
+      const target = document.getElementById(`section-${prev}`);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      AppState.landingPrevSection = null;
+      return;
+    }
+    // Fora da landing, volta para lista de treinos
+    if (typeof showTreinos === 'function') {
+      showTreinos();
+      return;
+    }
+    showToast('Navegação indisponível no momento.', 'error');
+  } catch(e) {
+    console.error('[goBackFromTreino] erro:', e);
+    showToast('Navegação indisponível no momento.', 'error');
+  }
+}
+
+/**
+ * Landing scroll do aluno (estilo Samsung Health)
+ */
+function showAlunoLanding() {
+  AppState.currentView = 'aluno-landing';
+  const app = document.getElementById('app');
+  app.innerHTML = getAlunoLandingTemplate();
+
+  // Logout
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+
+  // Aplica imagem de campanha se configurada
+  if (AppState.campaignHeroUrl && /^https?:\/\//i.test(AppState.campaignHeroUrl)) {
+    setLandingHeroImage(AppState.campaignHeroUrl);
+  }
+
+  // Exibe skeleton loaders imediatamente
+  showAvaliacoesSkeletonLoader();
+  showTreinosSkeletonLoader();
+
+  // Carrega dados essenciais do aluno
+  callAPI('apiAlunoDashboard', [AppState.token])
+    .then(res => {
+      if (!res || res.success !== true) throw new Error(res?.error || 'Falha ao carregar dados');
+      AppState.aluno = res.aluno || null;
+      AppState.alunoData = {
+        avaliacoes: res.avaliacoes || [],
+        treinos: res.treinos || [],
+        aluno: res.aluno || {}
+      };
+
+      // Preenche informações básicas
+      const n = document.getElementById('landingAlunoNome');
+      const e = document.getElementById('landingAlunoEmail');
+      const s = document.getElementById('landingAlunoStatus');
+      if (n) n.textContent = res.aluno?.NomeCompleto || 'Não informado';
+      if (e) e.textContent = res.aluno?.Email || 'Não informado';
+      if (s) s.textContent = res.aluno?.StatusAluno || 'Inativo';
+
+      // Render de listas (substitui skeleton loaders)
+      renderAlunoAvaliacoesList(AppState.alunoData.avaliacoes);
+      renderAlunoTreinosList(AppState.alunoData.treinos);
+
+      // Lazy render da evolução quando a seção entrar na viewport
+      setupLandingBehaviors();
+
+      // Se houver intenção de seção, faz scroll após pequeno delay
+      if (AppState.nextAlunoSection) {
+        const id = `section-${AppState.nextAlunoSection}`;
+        const el = document.getElementById(id);
+        if (el) {
+          setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
+        }
+        AppState.nextAlunoSection = null;
+      }
+    })
+    .catch(err => {
+      console.error('[showAlunoLanding] erro:', err);
+      const main = document.getElementById('app');
+      if (main) main.innerHTML = '<div class="card"><p>Erro ao carregar seus dados.</p></div>';
+    });
+}
+
+/**
+ * Abre a landing do Aluno para o PROF/Master, carregando dados de um aluno específico
+ */
+function openAlunoLanding(alunoId) {
+  try {
+    if (!alunoId) {
+      showToast('Aluno inválido.', 'error');
+      return;
+    }
+    AppState.profViewingAlunoId = alunoId;
+    // Cria uma entrada de histórico simples para facilitar botão voltar do navegador
+    try { history.pushState({ profAluno: alunoId }, '', `#prof-aluno-${alunoId}`); } catch (e) {}
+    showAlunoLandingFor(alunoId);
+  } catch (e) {
+    console.error('[openAlunoLanding] erro:', e);
+    showToast('Não foi possível abrir a landing do aluno.', 'error');
+  }
+}
+
+/**
+ * Renderiza a landing scroll para um aluno específico (contexto professor)
+ */
+function showAlunoLandingFor(alunoId) {
+  AppState.currentView = 'aluno-landing-prof';
+  const app = document.getElementById('app');
+  app.innerHTML = getAlunoLandingTemplate();
+
+  // Mostra botão voltar específico do modo professor
+  const backBtn = document.getElementById('landingBackBtn');
+  if (backBtn) {
+    backBtn.style.display = 'inline-flex';
+    backBtn.addEventListener('click', () => {
+      AppState.profViewingAlunoId = null;
+      showAlunos();
+    });
+  }
+
+  // Logout segue funcionando normalmente
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+
+  // Aplica imagem de campanha se configurada
+  if (AppState.campaignHeroUrl && /^https?:\/\//i.test(AppState.campaignHeroUrl)) {
+    setLandingHeroImage(AppState.campaignHeroUrl);
+  }
+
+  // Carrega dados do aluno, avaliações e treinos do ID solicitado
+  const mainLoad = Promise.all([
+    callAPI('apiGetAluno', [AppState.token, alunoId]),
+    callAPI('apiListarAvaliacoes', [AppState.token, alunoId]),
+    callAPI('apiListarTreinos', [AppState.token, alunoId])
+  ]);
+
+  mainLoad
+    .then(([alRes, avRes, trRes]) => {
+      if (!alRes?.success) throw new Error(alRes?.error || 'Erro ao carregar aluno');
+      if (!avRes?.success) throw new Error(avRes?.error || 'Erro ao carregar avaliações');
+      if (!trRes?.success) throw new Error(trRes?.error || 'Erro ao carregar treinos');
+
+      const aluno = alRes.aluno || {};
+      const avaliacoes = avRes.avaliacoes || [];
+      const treinos = trRes.treinos || [];
+
+      // Persiste dados locais no estado (não afeta AppState.user)
+      AppState.alunoData = { aluno, avaliacoes, treinos };
+
+      // Preenche informações básicas
+      const n = document.getElementById('landingAlunoNome');
+      const e = document.getElementById('landingAlunoEmail');
+      const s = document.getElementById('landingAlunoStatus');
+      if (n) n.textContent = aluno?.NomeCompleto || 'Não informado';
+      if (e) e.textContent = aluno?.Email || 'Não informado';
+      if (s) s.textContent = aluno?.StatusAluno || 'Inativo';
+
+      // Render listas
+      renderAlunoAvaliacoesList(avaliacoes);
+      renderAlunoTreinosList(treinos);
+
+      // Behaviors e lazy charts
+      setupLandingBehaviors();
+    })
+    .catch(err => {
+      console.error('[showAlunoLandingFor] erro:', err);
+      const main = document.getElementById('app');
+      if (main) main.innerHTML = '<div class="card"><p>Erro ao carregar dados do aluno.</p></div>';
+    });
+}
+
+/**
+ * Comportamentos da landing: scroll suave, seção ativa e lazy de evolução
+ */
+function setupLandingBehaviors() {
+  const links = document.querySelectorAll('.landing-nav .lnk');
+  links.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.getAttribute('data-target');
+      const el = document.querySelector(target);
+      if (el) {
+        history.pushState({ section: target }, '', target);
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  });
+
+  // Atualiza ativo ao rolar e faz lazy da evolução
+  const sectionMap = ['#section-hero', '#section-info', '#section-avaliacoes', '#section-treinos', '#section-evolucao'];
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        // Marca nav ativa
+        links.forEach(b => b.classList.toggle('active', b.getAttribute('data-target') === `#${entry.target.id}`));
+        // Lazy evolução
+        if (entry.target.id === 'section-evolucao') {
+          const container = document.getElementById('alunoEvolucaoContainer');
+          if (container && container.childElementCount === 0 && AppState.alunoData) {
+            container.innerHTML = getEvolucaoTemplate(AppState.alunoData.avaliacoes, AppState.alunoData.treinos, AppState.alunoData.aluno);
+            setTimeout(() => initializeEvolucaoCharts(AppState.alunoData.avaliacoes, AppState.alunoData.treinos, AppState.alunoData.aluno), 50);
+          }
+        }
+      }
+    });
+  }, { rootMargin: '-20% 0px -60% 0px', threshold: 0.1 });
+
+  sectionMap.forEach(sel => {
+    const el = document.querySelector(sel);
+    if (el) observer.observe(el);
+  });
+
+  // Back/Forward navegação por seção
+  window.onpopstate = (ev) => {
+    const hash = location.hash || ev?.state?.section;
+    if (hash) {
+      const el = document.querySelector(hash);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+}
+
+/**
+ * Define a imagem do hero da landing dinamicamente via CSS var
+ */
+function setLandingHeroImage(url) {
+  try {
+    const val = url ? `url('${url}')` : '';
+    document.documentElement.style.setProperty('--landing-hero-image', val);
+  } catch (e) {
+    console.warn('[setLandingHeroImage] não foi possível ajustar imagem:', e);
+  }
+}
+
+/**
+ * Configura a imagem de campanha do hero (persistência em memória da sessão)
+ */
+function configureCampaignHero(url) {
+  AppState.campaignHeroUrl = url;
+  setLandingHeroImage(url);
+}
+
+/**
+ * Calcula tendência entre duas avaliações
+ * @param {number} atual - Valor atual
+ * @param {number} anterior - Valor anterior
+ * @param {boolean} higherIsBetter - Se valores maiores são melhores
+ * @return {Object} { direction: 'up'|'down'|'neutral', color: string, icon: string }
+ */
+function calcularTendencia(atual, anterior, higherIsBetter = true) {
+  if (!anterior || atual === anterior) {
+    return { direction: 'neutral', color: '#757575', icon: 'remove' };
+  }
+  
+  const isUp = atual > anterior;
+  const isGood = higherIsBetter ? isUp : !isUp;
+  
+  return {
+    direction: isUp ? 'up' : 'down',
+    color: isGood ? '#2e7d32' : '#c62828',
+    icon: isUp ? 'arrow_upward' : 'arrow_downward'
+  };
+}
+
+/**
+ * Classifica VO2 Max por sexo e idade (tabela simplificada)
+ * @param {number} vo2 - Valor VO2 Max
+ * @param {string} sexo - 'M' ou 'F'
+ * @param {number} idade - Idade do aluno
+ * @return {string} Classificação
+ */
+function classificarVO2Max(vo2, sexo, idade) {
+  if (!vo2 || vo2 <= 0) return 'Não avaliado';
+  
+  // Tabela simplificada (você pode refinar depois)
+  const isMasculino = sexo === 'M' || sexo === 'Masculino';
+  
+  if (idade < 30) {
+    if (isMasculino) {
+      if (vo2 >= 55) return 'Excelente';
+      if (vo2 >= 45) return 'Bom';
+      if (vo2 >= 35) return 'Médio';
+      return 'Abaixo da média';
+    } else {
+      if (vo2 >= 49) return 'Excelente';
+      if (vo2 >= 39) return 'Bom';
+      if (vo2 >= 30) return 'Médio';
+      return 'Abaixo da média';
+    }
+  } else if (idade < 50) {
+    if (isMasculino) {
+      if (vo2 >= 50) return 'Excelente';
+      if (vo2 >= 40) return 'Bom';
+      if (vo2 >= 30) return 'Médio';
+      return 'Abaixo da média';
+    } else {
+      if (vo2 >= 44) return 'Excelente';
+      if (vo2 >= 34) return 'Bom';
+      if (vo2 >= 25) return 'Médio';
+      return 'Abaixo da média';
+    }
+  } else {
+    if (isMasculino) {
+      if (vo2 >= 45) return 'Excelente';
+      if (vo2 >= 35) return 'Bom';
+      if (vo2 >= 25) return 'Médio';
+      return 'Abaixo da média';
+    } else {
+      if (vo2 >= 39) return 'Excelente';
+      if (vo2 >= 29) return 'Bom';
+      if (vo2 >= 20) return 'Médio';
+      return 'Abaixo da média';
+    }
+  }
+}
+
+
+// ========================================
+// MÓDULO: TREINOS
+// ========================================
+
+/**
+ * Mostra lista de treinos (todos ou filtrados por aluno)
+ */
+function showTreinos(alunoId = null) {
+  const mainContent = document.querySelector('.content-area');
+  mainContent.innerHTML = getSkeletonLoader('lista');
+  
+  const endpoint = alunoId ? 'apiListarTreinos' : 'apiListarTodosTreinos';
+  const args = alunoId ? [AppState.token, alunoId] : [AppState.token];
+  
+  callAPI(endpoint, args)
+    .then(response => {
+      if (!response || response.success !== true) {
+        throw new Error(response?.error || 'Erro ao carregar treinos');
+      }
+      mainContent.innerHTML = getTreinosListTemplate(response.treinos || [], alunoId);
+    })
+    .catch(error => {
+      console.error('Erro ao carregar treinos:', error);
+      mainContent.innerHTML = '<div class="card"><p>Erro ao carregar treinos.</p></div>';
+      showToast('Erro ao carregar treinos.', 'error');
+    });
+}
+
+/**
+ * Mostra formulário de cadastro de treino
+ */
+function showCadastroTreino(alunoId = null) {
+  const mainContent = document.querySelector('.content-area');
+  
+  if (!alunoId) {
+    mainContent.innerHTML = getSkeletonLoader('formulario');
+    callAPI('apiListarAlunos', [AppState.token])
+      .then(response => {
+        if (!response || response.success !== true) {
+          throw new Error(response?.error || 'Erro ao carregar alunos');
+        }
+        mainContent.innerHTML = getCadastroTreinoTemplate(response.alunos || []);
+        setupCadastroTreinoForm();
+      })
+      .catch(error => {
+        console.error('Erro ao carregar alunos:', error);
+        mainContent.innerHTML = '<div class="card"><p>Erro ao carregar formulário.</p></div>';
+        showToast('Erro ao carregar formulário.', 'error');
+      });
+  } else {
+    mainContent.innerHTML = getCadastroTreinoTemplate([], alunoId);
+    setupCadastroTreinoForm();
+  }
+}
+
+/**
+ * Configura form de cadastro de treino
+ */
+function setupCadastroTreinoForm() {
+  const form = document.getElementById('cadastroTreinoForm');
+  if (!form) return;
+  
+  form.addEventListener('submit', handleCadastroTreino);
+}
+
+/**
+ * Processa cadastro de treino
+ */
+function handleCadastroTreino(e) {
+  e.preventDefault();
+  
+  const formEl = e.target;
+  if (formEl.dataset.submitting === 'true') return;
+  formEl.dataset.submitting = 'true';
+  
+  const formData = new FormData(e.target);
+  const dados = {};
+  
+  for (let [key, value] of formData.entries()) {
+    dados[key] = value;
+  }
+  
+  if (!dados.ID_Aluno || !dados.DataInicio || !dados.DescricaoTreino) {
+    showToast('Aluno, Data de Início e Descrição são obrigatórios.', 'error');
+    delete formEl.dataset.submitting;
+    return;
+  }
+  
+  const submitBtn = form.querySelector('[type="submit"]');
+  const btnText = submitBtn?.querySelector('.btn-text');
+  if (submitBtn) submitBtn.disabled = true;
+  if (btnText) btnText.textContent = 'Salvando...';
+  
+  callAPI('apiCadastrarTreino', [AppState.token, dados])
+    .then(response => {
+      if (!response || response.success !== true) {
+        throw new Error(response?.error || 'Erro ao cadastrar treino');
+      }
+      showToast('Treino cadastrado com sucesso!', 'success');
+      setTimeout(() => showTreinos(dados.ID_Aluno), 800);
+    })
+    .catch(error => {
+      console.error('Erro ao cadastrar treino:', error);
+      showToast(error.message || 'Erro ao cadastrar treino.', 'error');
+    })
+    .finally(() => {
+      if (submitBtn) submitBtn.disabled = false;
+      if (btnText) btnText.textContent = 'Salvar Treino';
+      delete formEl.dataset.submitting;
+    });
+}
+
+/**
+ * Visualiza detalhes de um treino específico
+ */
+function viewTreino(treinoId) {
+  const detailCont = document.getElementById('landingDetailContainer');
+  if (detailCont) {
+    AppState.landingPrevSection = 'treinos';
+    try {
+      const sections = ['#section-hero','#section-info','#section-avaliacoes','#section-treinos','#section-evolucao'];
+      sections.forEach(sel => { const el = document.querySelector(sel); if (el) el.style.display = 'none'; });
+      const detailSec = document.getElementById('section-detail');
+      if (detailSec) detailSec.style.display = 'block';
+      detailCont.innerHTML = getSkeletonLoader('detalhes');
+      history.pushState({ section: '#section-detail', detail: `treino-${treinoId}` }, '', `#treino-${treinoId}`);
+    } catch(e) { console.warn('[viewTreino] inline detail fallback', e); }
+  }
+  const mainContent = detailCont || document.querySelector('.content-area') || document.getElementById('app');
+  if (!mainContent) { console.error('[viewTreino] Sem container'); showToast('Não foi possível abrir o treino.', 'error'); return; }
+  mainContent.innerHTML = getSkeletonLoader('detalhes');
+  
+  callAPI('apiGetTreino', [AppState.token, treinoId])
+    .then(response => {
+      if (!response || response.success !== true) {
+        throw new Error(response?.error || 'Erro ao carregar treino');
+      }
+      
+      const treino = response.treino;
+      const aluno = response.aluno || null;
+      
+      mainContent.innerHTML = getVisualizacaoTreinoTemplate(treino, aluno);
+    })
+    .catch(error => {
+      console.error('Erro ao carregar treino:', error);
+      mainContent.innerHTML = '<div class="card"><p>Erro ao carregar treino.</p></div>';
+      showToast('Erro ao carregar treino.', 'error');
+    });
+}
+
+/**
+ * Alterna modo de edição da descrição do treino
+ */
+function toggleEditarTreino(treinoId) {
+  const displayDiv = document.getElementById('descricaoDisplay');
+  const editDiv = document.getElementById('descricaoEdit');
+  const btnEditar = document.getElementById('btnEditarDescricao');
+  
+  if (displayDiv && editDiv && btnEditar) {
+    displayDiv.style.display = 'none';
+    editDiv.style.display = 'block';
+    btnEditar.style.display = 'none';
+    
+    // Foca no textarea
+    const textarea = document.getElementById('descricaoTextarea');
+    if (textarea) {
+      textarea.focus();
+      // Posiciona cursor no final
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }
+  }
+}
+
+/**
+ * Cancela edição da descrição do treino
+ */
+function cancelarEdicaoTreino() {
+  const displayDiv = document.getElementById('descricaoDisplay');
+  const editDiv = document.getElementById('descricaoEdit');
+  const btnEditar = document.getElementById('btnEditarDescricao');
+  
+  if (displayDiv && editDiv && btnEditar) {
+    displayDiv.style.display = 'block';
+    editDiv.style.display = 'none';
+    btnEditar.style.display = 'inline-flex';
+  }
+}
+
+/**
+ * Salva alterações na descrição do treino
+ */
+function salvarEdicaoTreino(treinoId) {
+  const textarea = document.getElementById('descricaoTextarea');
+  if (!textarea) return;
+  
+  const novaDescricao = textarea.value.trim();
+  
+  if (!novaDescricao) {
+    showToast('A descrição não pode estar vazia.', 'error');
+    return;
+  }
+  
+  // Desabilita botões durante salvamento
+  const btnSalvar = event.target.closest('button');
+  const btnCancelar = btnSalvar?.previousElementSibling;
+  const btnTextSalvar = btnSalvar?.querySelector('.btn-text');
+  
+  if (btnSalvar) btnSalvar.disabled = true;
+  if (btnCancelar) btnCancelar.disabled = true;
+  if (btnTextSalvar) btnTextSalvar.textContent = 'Salvando...';
+  
+  const dados = {
+    DescricaoTreino: novaDescricao
+  };
+  
+  callAPI('apiAtualizarTreino', [AppState.token, treinoId, dados])
+    .then(response => {
+      if (!response || response.success !== true) {
+        throw new Error(response?.error || 'Erro ao atualizar treino');
+      }
+      
+      showToast('Treino atualizado com sucesso!', 'success');
+      
+      // Atualiza a visualização
+      const preElement = document.querySelector('#descricaoDisplay pre');
+      if (preElement) {
+        preElement.textContent = novaDescricao;
+      }
+      
+      // Volta ao modo visualização
+      cancelarEdicaoTreino();
+    })
+    .catch(error => {
+      console.error('Erro ao atualizar treino:', error);
+      showToast(error.message || 'Erro ao atualizar treino.', 'error');
+    })
+    .finally(() => {
+      if (btnSalvar) btnSalvar.disabled = false;
+      if (btnCancelar) btnCancelar.disabled = false;
+      if (btnTextSalvar) btnTextSalvar.textContent = 'Salvar Alterações';
+    });
+}
+
+// ========================================
+// MÓDULO: VISUALIZAÇÕES DO ALUNO
+// ========================================
+
+/**
+ * Mostra avaliações do aluno logado
+ */
+function showMinhasAvaliacoes() {
+  const mainContent = document.querySelector('.content-area');
+  mainContent.innerHTML = getSkeletonLoader('lista');
+  
+  // Busca o ID do aluno do usuário logado
+  const alunoId = (AppState.user && AppState.user.ID_Aluno) ? AppState.user.ID_Aluno : (AppState.aluno && AppState.aluno.ID_Aluno);
+
+  if (!alunoId) {
+    // Tenta recuperar o ID do aluno a partir do dashboard do aluno
+    callAPI('apiAlunoDashboard', [AppState.token])
+      .then(res => {
+        if (res && res.success && res.aluno && res.aluno.ID_Aluno) {
+          AppState.aluno = res.aluno;
+          if (AppState.user && !AppState.user.ID_Aluno) AppState.user.ID_Aluno = res.aluno.ID_Aluno;
+          // Re-renderiza agora que temos o ID
+          showMinhasAvaliacoes();
+        } else {
+          mainContent.innerHTML = '<div class="card"><p>Erro: ID do aluno não encontrado.</p></div>';
+          showToast('Erro ao identificar aluno.', 'error');
+        }
+      })
+      .catch(() => {
+        mainContent.innerHTML = '<div class="card"><p>Erro: ID do aluno não encontrado.</p></div>';
+        showToast('Erro ao identificar aluno.', 'error');
+      });
+    return;
+  }
+  
+  callAPI('apiListarAvaliacoes', [AppState.token, alunoId])
+    .then(response => {
+      if (!response || response.success !== true) {
+        throw new Error(response?.error || 'Erro ao carregar avaliações');
+      }
+      
+      // Usa o mesmo template, mas sem botão de cadastro (é aluno)
+      const avaliacoes = response.avaliacoes || [];
+      
+      let cardsHtml = '';
+      if (avaliacoes.length === 0) {
+        cardsHtml = '<div class="card"><p>Você ainda não possui avaliações registradas.</p></div>';
+      } else {
+        // Define a mais recente
+        let latestTs = -Infinity;
+        avaliacoes.forEach(a => { if (a.DataAvaliacao){ const ts = new Date(a.DataAvaliacao).getTime(); if(!isNaN(ts)) latestTs = Math.max(latestTs, ts);} });
+        cardsHtml = '<div class="health-list">';
+        avaliacoes.forEach(avaliacao => {
+          const dataAvaliacao = avaliacao.DataAvaliacao ? new Date(avaliacao.DataAvaliacao).toLocaleDateString('pt-BR') : '-';
+          const id = avaliacao.ID_Avaliacao || '-';
+          const pressao = avaliacao.PressaoArterial || '-';
+          const fc = avaliacao.FC_Repouso ? `${avaliacao.FC_Repouso} bpm` : '-';
+          const peso = avaliacao.Peso ? `${avaliacao.Peso} kg` : '-';
+          const altura = avaliacao.Altura ? `${avaliacao.Altura} cm` : '-';
+          const pg = parseFloat(avaliacao.PercentualGordura) || 0;
+          const pm = parseFloat(avaliacao.PercentualMassaMagra) || 0;
+          const ph = parseFloat(avaliacao.PercentualHidrico) || 0;
+          const total = (pg + pm + ph) || 0;
+          const norm = (v) => total > 0 ? Math.max(0, Math.min(100, (v / total) * 100)) : 0;
+          const pgN = norm(pg).toFixed(2);
+          const pmN = norm(pm).toFixed(2);
+          const phN = norm(ph).toFixed(2);
+          const isLatest = avaliacao.DataAvaliacao && !isNaN(new Date(avaliacao.DataAvaliacao).getTime()) && new Date(avaliacao.DataAvaliacao).getTime() === latestTs;
+          cardsHtml += `
+            <div class="health-card">
+              <div class="hc-icon"><span class="material-icons">monitor_heart</span></div>
+              <div>
+                <div class="hc-title">Avaliação física • ${dataAvaliacao} ${isLatest ? '<span class="hc-badge"><span class="material-icons">star</span> Última</span>' : ''}</div>
+                <div class="hc-subtitle">
+                  <span class="hc-chip"><span class="material-icons" style="color:#607d8b">tag</span> ID ${id}</span>
+                </div>
+                <div class="hc-metrics">
+                  <span class="hc-chip"><span class="material-icons" style="color:#e91e63">favorite</span> ${pressao}</span>
+                  <span class="hc-chip"><span class="material-icons" style="color:#f44336">monitor_heart</span> ${fc}</span>
+                  <span class="hc-chip"><span class="material-icons" style="color:#3EA4D4">scale</span> ${peso}</span>
+                  <span class="hc-chip"><span class="material-icons" style="color:#247DAA">straighten</span> ${altura}</span>
+                </div>
+                <div class="hc-progress">
+                  <div class="seg seg-gordura" style="width:${pgN}%"></div>
+                  <div class="seg seg-magra" style="width:${pmN}%"></div>
+                  <div class="seg seg-hidrico" style="width:${phN}%"></div>
+                </div>
+                <div class="hc-legend">
+                  <span><span class="dot" style="background:#ff9800"></span>Gordura ${avaliacao.PercentualGordura ? avaliacao.PercentualGordura + '%' : '-'}</span>
+                  <span><span class="dot" style="background:#4caf50"></span>Massa magra ${avaliacao.PercentualMassaMagra ? avaliacao.PercentualMassaMagra + '%' : '-'}</span>
+                  <span><span class="dot" style="background:#2196f3"></span>Hídrico ${avaliacao.PercentualHidrico ? avaliacao.PercentualHidrico + '%' : '-'}</span>
+                </div>
+              </div>
+              <div class="hc-actions">
+                <button class="btn btn-secondary btn-pill" onclick="viewAvaliacao('${id}')">Entrar</button>
+              </div>
+            </div>
+          `;
+        });
+        cardsHtml += '</div>';
+      }
+
+      mainContent.innerHTML = `
+        <div class="card">
+          <h2 class="card-title">Minhas Avaliações Físicas</h2>
+          ${cardsHtml}
+        </div>
+      `;
+    })
+    .catch(error => {
+      console.error('Erro ao carregar avaliações:', error);
+      mainContent.innerHTML = '<div class="card"><p>Erro ao carregar suas avaliações.</p></div>';
+      showToast('Erro ao carregar avaliações.', 'error');
+    });
+}
+
+/**
+ * Mostra treinos do aluno logado
+ */
+function showMeusTreinos() {
+  const mainContent = document.querySelector('.content-area');
+  mainContent.innerHTML = getSkeletonLoader('lista');
+  
+  // Busca o ID do aluno do usuário logado
+  const alunoId = (AppState.user && AppState.user.ID_Aluno) ? AppState.user.ID_Aluno : (AppState.aluno && AppState.aluno.ID_Aluno);
+
+  if (!alunoId) {
+    // Tenta recuperar o ID do aluno a partir do dashboard do aluno
+    callAPI('apiAlunoDashboard', [AppState.token])
+      .then(res => {
+        if (res && res.success && res.aluno && res.aluno.ID_Aluno) {
+          AppState.aluno = res.aluno;
+          if (AppState.user && !AppState.user.ID_Aluno) AppState.user.ID_Aluno = res.aluno.ID_Aluno;
+          // Re-renderiza agora que temos o ID
+          showMeusTreinos();
+        } else {
+          mainContent.innerHTML = '<div class="card"><p>Erro: ID do aluno não encontrado.</p></div>';
+          showToast('Erro ao identificar aluno.', 'error');
+        }
+      })
+      .catch(() => {
+        mainContent.innerHTML = '<div class="card"><p>Erro: ID do aluno não encontrado.</p></div>';
+        showToast('Erro ao identificar aluno.', 'error');
+      });
+    return;
+  }
+  
+  callAPI('apiListarTreinos', [AppState.token, alunoId])
+    .then(response => {
+      if (!response || response.success !== true) {
+        throw new Error(response?.error || 'Erro ao carregar treinos');
+      }
+      
+      const treinos = response.treinos || [];
+      
+      let rows = '';
+      if (treinos.length === 0) {
+        rows = '<tr><td colspan="5" class="text-center">Você ainda não possui treinos cadastrados.</td></tr>';
+      } else {
+        treinos.forEach(treino => {
+          const dataInicio = treino.DataInicio ? new Date(treino.DataInicio).toLocaleDateString('pt-BR') : '-';
+          const dataFim = treino.DataFim ? new Date(treino.DataFim).toLocaleDateString('pt-BR') : '-';
+          const statusBadge = treino.Status === 'Ativo' 
+            ? '<span style="padding: 4px 8px; background: #e8f5e9; color: #2e7d32; border-radius: 12px; font-size: 12px; font-weight: 500;">Ativo</span>'
+            : '<span style="padding: 4px 8px; background: #e0e0e0; color: #616161; border-radius: 12px; font-size: 12px; font-weight: 500;">Concluído</span>';
+          
+          rows += `
+            <tr>
+              <td>${treino.ID_Treino || '-'}</td>
+              <td>${dataInicio}</td>
+              <td>${dataFim}</td>
+              <td>${statusBadge}</td>
+              <td>
+                <button class="btn btn-primary btn-icon" onclick="viewTreino('${treino.ID_Treino}')" title="Ver detalhes">
+                  <span class="material-icons">visibility</span>
+                </button>
+              </td>
+            </tr>
+          `;
+        });
+      }
+      
+      mainContent.innerHTML = `
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2 class="card-title" style="margin-bottom: 0;">Meus Treinos</h2>
+          </div>
+          
+          <div class="table-responsive">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Data Início</th>
+                  <th>Data Fim</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    })
+    .catch(error => {
+      console.error('Erro ao carregar treinos:', error);
+      mainContent.innerHTML = '<div class="card"><p>Erro ao carregar seus treinos.</p></div>';
+      showToast('Erro ao carregar treinos.', 'error');
+    });
+}
+
+</script>
+<script>
+/**
+ * Mostra dashboard de evolução do aluno com gráficos comparativos
+ */
+function showMinhaEvolucao() {
+  const mainContent = document.querySelector('.content-area');
+  mainContent.innerHTML = getSkeletonLoader('evolution');
+  
+  const alunoId = (AppState.user && AppState.user.ID_Aluno) ? AppState.user.ID_Aluno : (AppState.aluno && AppState.aluno.ID_Aluno);
+
+  if (!alunoId) {
+    callAPI('apiAlunoDashboard', [AppState.token])
+      .then(res => {
+        if (res && res.success && res.aluno && res.aluno.ID_Aluno) {
+          AppState.aluno = res.aluno;
+          if (AppState.user && !AppState.user.ID_Aluno) AppState.user.ID_Aluno = res.aluno.ID_Aluno;
+          showMinhaEvolucao();
+        } else {
+          mainContent.innerHTML = '<div class="card"><p>Erro: ID do aluno não encontrado.</p></div>';
+          showToast('Erro ao identificar aluno.', 'error');
+        }
+      })
+      .catch(() => {
+        mainContent.innerHTML = '<div class="card"><p>Erro: ID do aluno não encontrado.</p></div>';
+        showToast('Erro ao identificar aluno.', 'error');
+      });
+    return;
+  }
+  
+  callAPI('apiAlunoDashboard', [AppState.token])
+    .then(response => {
+      if (!response || response.success !== true) {
+        throw new Error(response?.error || 'Erro ao carregar dados de evolução');
+      }
+      
+      const avaliacoes = response.avaliacoes || [];
+      const treinos = response.treinos || [];
+      const aluno = response.aluno || {};
+      
+      mainContent.innerHTML = getEvolucaoTemplate(avaliacoes, treinos, aluno);
+      
+      // Inicializa gráficos após renderizar template
+      setTimeout(() => {
+        initializeEvolucaoCharts(avaliacoes, treinos, aluno);
+      }, 100);
+    })
+    .catch(error => {
+      console.error('Erro ao carregar evolução:', error);
+      mainContent.innerHTML = '<div class="card"><p>Erro ao carregar seus dados de evolução.</p></div>';
+      showToast('Erro ao carregar evolução.', 'error');
+    });
+}
+
+/**
+ * Inicializa gráficos de evolução
+ */
+function initializeEvolucaoCharts(avaliacoes, treinos, aluno) {
+  try {
+    // Registra plugin de datalabels se disponível
+    if (window.ChartDataLabels && Chart?.register) {
+      Chart.register(ChartDataLabels);
+    }
+  } catch (e) {
+    console.warn('[initializeEvolucaoCharts] ChartDataLabels não registrado:', e);
+  }
+
+  // Cria donuts padronizados (usa última avaliação sempre que fizer sentido)
+  createCompDonut(avaliacoes);
+  createVo2Donut(avaliacoes, aluno);
+  createPerimDonut(avaliacoes);
+  createFreqDonut(treinos);
+}
+
+/**
+ * Cria gráfico de evolução de peso
+ */
+// ===== Gráficos padronizados (Donut) =====
+function getCssVar(name, fallback) {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getBrandPalette() {
+  const primary = getCssVar('--primary-color', '#3EA4D4');
+  const secondary = getCssVar('--secondary-color', '#247DAA');
+  // Tons claros derivados manualmente, alinhados à paleta (evita cores "duras")
+  const light1 = '#A6D8EC';
+  const light2 = '#BBDFF0';
+  const neutral = '#D9E4EC';
+  return {
+    primary, secondary, light1, light2, neutral,
+    triad: [secondary, primary, light1],
+    seq6: [primary, '#2F96C7', secondary, '#5BB6DC', '#86CBE6', '#B1DEF0']
+  };
+}
+
+function baseDonutOptions() {
+  const textColor = getCssVar('--text-primary', '#333');
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '65%',
+    plugins: {
+      legend: { display: false },
+      title: { display: false },
+      tooltip: { enabled: true },
+      datalabels: {
+        color: textColor,
+        font: { weight: '600' },
+        formatter: (value, ctx) => {
+          const label = ctx.chart.data.labels?.[ctx.dataIndex] || '';
+          if (value === 0 || value === null || value === undefined) return '';
+          return `${label}: ${value}`;
+        }
+      }
+    },
+    borderWidth: 0
+  };
+}
+
+function createCompDonut(avaliacoes) {
+  const canvas = document.getElementById('compDonut');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const pal = getBrandPalette();
+  const ultima = avaliacoes[avaliacoes.length - 1] || {};
+  const gord = parseFloat(ultima.PercentualGordura) || 0;
+  const magra = parseFloat(ultima.PercentualMassaMagra) || 0;
+  const hidr = parseFloat(ultima.PercentualHidrico) || 0;
+  const total = gord + magra + hidr;
+  if (total === 0) {
+    canvas.parentElement.innerHTML = '<p style="text-align:center; color:#999; padding:40px;">Sem dados de composição corporal</p>';
+    return;
+  }
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Gordura %', 'Massa Magra %', 'Hídrico %'],
+      datasets: [{
+        data: [gord.toFixed(1), magra.toFixed(1), hidr.toFixed(1)],
+        backgroundColor: pal.triad,
+        borderWidth: 0
+      }]
+    },
+    options: baseDonutOptions()
+  });
+}
+
+function createVo2Donut(avaliacoes, aluno) {
+  const canvas = document.getElementById('vo2Donut');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const pal = getBrandPalette();
+  const sexo = aluno?.Sexo || 'M';
+  // últimas até 12 avaliações com VO2
+  const lista = avaliacoes
+    .filter(a => a.Teste_VO2Max_Resultado && parseFloat(a.Teste_VO2Max_Resultado) > 0)
+    .slice(-12);
+  if (lista.length === 0) {
+    canvas.parentElement.innerHTML = '<p style="text-align:center; color:#999; padding:40px;">Sem dados de VO2 Max</p>';
+    return;
+  }
+  const counts = { 'Excelente': 0, 'Bom': 0, 'Médio': 0, 'Abaixo da média': 0 };
+  lista.forEach(a => {
+    const idade = (() => {
+      try {
+        const d = a.DataNascimento || aluno?.DataNascimento;
+        if (!d) return 30;
+        const dn = new Date(d);
+        const hoje = new Date();
+        let idade = hoje.getFullYear() - dn.getFullYear();
+        const m = hoje.getMonth() - dn.getMonth();
+        if (m < 0 || (m === 0 && hoje.getDate() < dn.getDate())) idade--;
+        return idade;
+      } catch { return 30; }
+    })();
+    const cls = classificarVO2Max(parseFloat(a.Teste_VO2Max_Resultado), sexo, idade);
+    if (counts[cls] !== undefined) counts[cls]++;
+  });
+  const labels = Object.keys(counts);
+  const data = labels.map(l => counts[l]);
+  const colors = [pal.secondary, pal.primary, pal.light1, pal.neutral];
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: colors,
+        borderWidth: 0
+      }]
+    },
+    options: baseDonutOptions()
+  });
+}
+
+function createPerimDonut(avaliacoes) {
+  const canvas = document.getElementById('perimDonut');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const pal = getBrandPalette();
+  if (!avaliacoes.length) {
+    canvas.parentElement.innerHTML = '<p style="text-align:center; color:#999; padding:40px;">Sem dados de perimetria</p>';
+    return;
+  }
+  const a = avaliacoes[avaliacoes.length - 1];
+  // Agrega em 3 regiões para leitura simples
+  const tronco = ['Perimetro_Peitoral','Perimetro_Cintura','Perimetro_Abdomen','Perimetro_Quadril']
+    .map(k => parseFloat(a[k]) || 0).reduce((s,v) => s+v, 0);
+  const mmss = ['Perimetro_BracoDireito','Perimetro_BracoEsquerdo','Perimetro_AntebracoDireito','Perimetro_AntebracoEsquerdo']
+    .map(k => parseFloat(a[k]) || 0).reduce((s,v) => s+v, 0);
+  const mmi = ['Perimetro_CoxaDireita_Proximal','Perimetro_CoxaEsquerda_Proximal','Perimetro_PanturrilhaDireita','Perimetro_PanturrilhaEsquerda']
+    .map(k => parseFloat(a[k]) || 0).reduce((s,v) => s+v, 0);
+  const total = tronco + mmss + mmi;
+  if (total === 0) {
+    canvas.parentElement.innerHTML = '<p style="text-align:center; color:#999; padding:40px;">Sem dados de perimetria</p>';
+    return;
+  }
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Tronco', 'MMSS', 'MMII'],
+      datasets: [{
+        data: [tronco, mmss, mmi].map(v => Number(v.toFixed(1))),
+        backgroundColor: [pal.primary, pal.secondary, pal.light1],
+        borderWidth: 0
+      }]
+    },
+    options: baseDonutOptions()
+  });
+}
+
+function createFreqDonut(treinos) {
+  const canvas = document.getElementById('freqDonut');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const pal = getBrandPalette();
+  if (!treinos || treinos.length === 0) {
+    canvas.parentElement.innerHTML = '<p style="text-align:center; color:#999; padding:40px;">Sem treinos cadastrados</p>';
+    return;
+  }
+  // Conta treinos por mês (últimos 6)
+  const mesesMap = {};
+  treinos.forEach(t => {
+    if (!t.DataInicio) return;
+    const d = new Date(t.DataInicio);
+    const key = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+    mesesMap[key] = (mesesMap[key] || 0) + 1;
+  });
+  const entries = Object.entries(mesesMap).slice(-6);
+  if (entries.length === 0) {
+    canvas.parentElement.innerHTML = '<p style="text-align:center; color:#999; padding:40px;">Sem treinos recentes</p>';
+    return;
+  }
+  const labels = entries.map(e => e[0]);
+  const data = entries.map(e => e[1]);
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: pal.seq6,
+        borderWidth: 0
+      }]
+    },
+    options: baseDonutOptions()
+  });
+}
+
+/**
+ * Cria gráfico de composição corporal
+ */
+// Mantemos implementações antigas abaixo (não utilizadas) por compatibilidade futura
+
+/**
+ * Cria gráfico de VO2 Max
+ */
+function createVO2Chart(avaliacoes, aluno) {
+  const canvas = document.getElementById('vo2Chart');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  const ultimas = avaliacoes.filter(a => a.Teste_VO2Max_Resultado && parseFloat(a.Teste_VO2Max_Resultado) > 0).slice(-6).reverse();
+  
+  if (ultimas.length === 0) {
+    canvas.parentElement.innerHTML = '<p style="text-align: center; color: #999; padding: 40px;">Sem dados de VO2 Max disponíveis</p>';
+    return;
+  }
+  
+  const labels = ultimas.map(a => {
+    const d = new Date(a.DataAvaliacao);
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+  });
+  
+  const vo2Data = ultimas.map(a => parseFloat(a.Teste_VO2Max_Resultado) || 0);
+  
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'VO2 Max',
+        data: vo2Data,
+        borderColor: '#ff9800',
+        backgroundColor: 'rgba(255, 152, 0, 0.1)',
+        borderWidth: 3,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        pointBackgroundColor: '#ff9800',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: false,
+          grid: {
+            color: 'rgba(0, 0, 0, 0.05)'
+          }
+        },
+        x: {
+          grid: {
+            display: false
+          }
+        }
+      }
+    }
+  });
+}
+
+/**
+ * Cria gráfico de perimetria (radar) - CORRIGIDO
+ */
+function createPerimetriaChart(avaliacoes) {
+  const canvas = document.getElementById('perimetriaChart');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  
+  if (avaliacoes.length < 1) {
+    canvas.parentElement.innerHTML = '<p style="text-align: center; color: #999; padding: 40px;">Sem dados de perimetria disponíveis</p>';
+    return;
+  }
+  
+  const primeira = avaliacoes[0];
+  const ultima = avaliacoes[avaliacoes.length - 1];
+  
+  // CORRIGIDO: Adicionado Coxa E (9 pontos no total)
+  const labels = ['Pescoço', 'Peitoral', 'Cintura', 'Abdômen', 'Quadril', 'Braço D', 'Braço E', 'Coxa D (Prox.)', 'Coxa E (Prox.)'];
+  
+  const primeiraData = [
+    parseFloat(primeira.Perimetro_Pescoco) || 0,
+    parseFloat(primeira.Perimetro_Peitoral) || 0,
+    parseFloat(primeira.Perimetro_Cintura) || 0,
+    parseFloat(primeira.Perimetro_Abdomen) || 0,
+    parseFloat(primeira.Perimetro_Quadril) || 0,
+    parseFloat(primeira.Perimetro_BracoDireito) || 0,
+    parseFloat(primeira.Perimetro_BracoEsquerdo) || 0,
+    parseFloat(primeira.Perimetro_CoxaDireita_Proximal) || 0,
+    parseFloat(primeira.Perimetro_CoxaEsquerda_Proximal) || 0
+  ];
+  
+  const ultimaData = [
+    parseFloat(ultima.Perimetro_Pescoco) || 0,
+    parseFloat(ultima.Perimetro_Peitoral) || 0,
+    parseFloat(ultima.Perimetro_Cintura) || 0,
+    parseFloat(ultima.Perimetro_Abdomen) || 0,
+    parseFloat(ultima.Perimetro_Quadril) || 0,
+    parseFloat(ultima.Perimetro_BracoDireito) || 0,
+    parseFloat(ultima.Perimetro_BracoEsquerdo) || 0,
+    parseFloat(ultima.Perimetro_CoxaDireita_Proximal) || 0,
+    parseFloat(ultima.Perimetro_CoxaEsquerda_Proximal) || 0
+  ];
+  
+  new Chart(ctx, {
+    type: 'radar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Primeira Avaliação',
+          data: primeiraData,
+          borderColor: 'rgba(158, 158, 158, 0.8)',
+          backgroundColor: 'rgba(158, 158, 158, 0.2)',
+          borderWidth: 2
+        },
+        {
+          label: 'Última Avaliação',
+          data: ultimaData,
+          borderColor: '#3EA4D4',
+          backgroundColor: 'rgba(62, 164, 212, 0.2)',
+          borderWidth: 2
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top'
+        }
+      },
+      scales: {
+        r: {
+          beginAtZero: true,
+          grid: {
+            color: 'rgba(0, 0, 0, 0.1)'
+          }
+        }
+      }
+    }
+  });
+}
+
+/**
+ * Cria gráfico de frequência de treinos
+ */
+function createFrequenciaChart(treinos) {
+  const canvas = document.getElementById('frequenciaChart');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  
+  // Agrupa treinos por mês
+  const mesesMap = {};
+  treinos.forEach(t => {
+    if (!t.DataInicio) return;
+    const d = new Date(t.DataInicio);
+    const mesAno = `${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    mesesMap[mesAno] = (mesesMap[mesAno] || 0) + 1;
+  });
+  
+  // Ordena chaves cronologicamente
+  const sortedKeys = Object.keys(mesesMap).sort((a, b) => {
+    const [mesA, anoA] = a.split('/').map(Number);
+    const [mesB, anoB] = b.split('/').map(Number);
+    return (anoA * 12 + mesA) - (anoB * 12 + mesB);
+  });
+  
+  const labels = sortedKeys.slice(-6);
+  const counts = labels.map(k => mesesMap[k]);
+  
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Treinos Iniciados',
+        data: counts,
+        backgroundColor: '#2e7d32',
+        borderColor: '#1b5e20',
+        borderWidth: 1,
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            stepSize: 1
+          },
+          grid: {
+            color: 'rgba(0, 0, 0, 0.05)'
+          }
+        },
+        x: {
+          grid: {
+            display: false
+          }
+        }
+      }
+    }
+  });
+}
+</script>

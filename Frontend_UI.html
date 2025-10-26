@@ -1,0 +1,247 @@
+<script>
+/**
+ * R2 Assessoria Esportiva - Frontend UI Templates
+ * Contém todos os templates HTML para injeção dinâmica
+ * REFATORADO COM TAILWIND CSS
+ */
+
+/**
+ * Template da Splash Screen (tela de carregamento inicial)
+ */
+function getSplashScreenTemplate() {
+  return `
+    <div class="fixed inset-0 bg-r2-bg flex items-center justify-center z-50 transition-opacity duration-500" id="splashScreen" style="opacity: 0;">
+      <div class="flex flex-col items-center justify-center space-y-6 p-8">
+        <div class="mb-4">
+          <img src="https://i.ibb.co/bM5pT80C/perfil-r2-assessoria.png" 
+               alt="R2 Assessoria" 
+               class="w-32 h-32 rounded-full shadow-2xl object-cover">
+        </div>
+        
+        <h1 class="text-4xl font-bold text-r2-text mt-4 text-center">R2 Assessoria Esportiva</h1>
+        <p class="text-lg text-r2-text-body text-center">Transformando vidas através do movimento</p>
+        
+        <div class="mt-8">
+          <div class="w-12 h-12 border-4 border-r2-primary border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        
+        <div class="mt-12 text-center">
+          <p class="m-0 text-xs text-r2-text-muted">
+            Todos os direitos desta página são de <strong>R2 Assessoria Esportiva</strong><br>
+            Desenvolvimento: <strong>©2025 Studio Apollo Dev</strong>
+          </p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Template da tela de login
+ */
+function getLoginTemplate() {
+  return `
+    <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-r2-bg to-blue-50 p-4">
+      <div class="w-full max-w-md">
+        <div class="bg-white p-8 space-y-6 rounded-2xl shadow-2xl border border-gray-100">
+          <div class="text-center">
+            <img src="https://i.ibb.co/bM5pT80C/perfil-r2-assessoria.png" 
+                 alt="R2 Logo" 
+                 class="w-24 h-24 mx-auto mb-4 rounded-full shadow-lg object-cover">
+            <h1 class="text-3xl font-bold text-r2-text">R2 Assessoria Esportiva</h1>
+          </div>
+          
+          <div id="errorMessage" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm"></div>
+          
+          <form id="loginForm" class="space-y-5">
+            <div class="space-y-2">
+              <label class="block text-sm font-medium text-r2-text" for="email">Email</label>
+              <input type="email" 
+                     id="email" 
+                     class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-r2-primary focus:border-r2-primary transition duration-150 outline-none" 
+                     required>
+            </div>
+            
+            <div class="space-y-2">
+              <label class="block text-sm font-medium text-r2-text" for="senha">Senha</label>
+              <input type="password" 
+                     id="senha" 
+                     class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-r2-primary focus:border-r2-primary transition duration-150 outline-none" 
+                     required>
+            </div>
+            
+            <button type="submit" 
+                    id="submitBtn" 
+                    class="w-full py-3 px-4 rounded-lg text-white font-semibold bg-r2-primary hover:bg-r2-primary-dark transition duration-200 shadow-lg hover:shadow-xl ripple">
+              Entrar
+            </button>
+            
+            <div class="text-center">
+              <a href="#" class="text-sm text-r2-primary hover:text-r2-secondary transition duration-150 forgot-link">Esqueci minha senha</a>
+            </div>
+          </form>
+          
+          <div class="text-center text-xs text-r2-text-muted pt-4 border-t border-gray-100">
+            Todos os direitos reservados à <strong>R2 Assessoria Esportiva</strong><br>
+            Desenvolvimento: <strong>©2025 Studio Apollo Dev</strong>
+          </div>
+          
+          <div class="flex justify-center pt-2">
+            <a href="https://www.instagram.com/r2aesportiva/" 
+               target="_blank" 
+               rel="noopener noreferrer" 
+               class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-orange-500 text-white hover:scale-110 transition-transform duration-200 shadow-lg" 
+               title="Siga-nos no Instagram">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+              </svg>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Template do dashboard do professor
+ */
+function getProfessorDashboardTemplate() {
+  // Logo em base64 como fallback caso URL externa falhe
+  const logoBase64 = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNDgiIGZpbGw9IiMyMTk2ZjMiLz48dGV4dCB4PSI1MCIgeT0iNjAiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSI0MCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5SMjwvdGV4dD48L3N2Zz4=';
+  
+  return `
+    <div class="flex min-h-screen relative master-bg-image">
+      <!-- Sidebar com Glassmorphism -->
+      <aside class="w-64 fixed h-screen overflow-y-auto transition-all duration-300 z-[1000] bg-white/10 backdrop-blur-md border-r border-white/20 shadow-[0_8px_32px_0_rgba(31,38,135,0.37)]" id="sidebar">
+        <div class="p-6 bg-white/5 backdrop-blur-md border-b border-white/10 text-center">
+          <img src="https://i.ibb.co/bM5pT80C/perfil-r2-assessoria.png" 
+               alt="R2 Logo" 
+               class="w-20 h-20 rounded-full mb-3 object-cover mx-auto shadow-lg" 
+               onerror="this.src='${logoBase64}'">
+          <h2 class="text-xl font-medium text-white m-0">R2 Assessoria</h2>
+        </div>
+        
+        <nav class="py-5">
+          <a href="#" class="flex items-center px-6 py-3.5 cursor-pointer transition-all duration-300 text-white no-underline border-l-4 border-transparent hover:bg-white/15 hover:border-white/80 hover:shadow-[0_0_8px_rgba(255,255,255,0.4)] active:bg-r2-secondary active:border-white" data-view="dashboard">
+            <span class="material-icons mr-4">dashboard</span>
+            <span>Dashboard</span>
+          </a>
+          <a href="#" class="flex items-center px-6 py-3.5 cursor-pointer transition-all duration-300 text-white no-underline border-l-4 border-transparent hover:bg-white/15 hover:border-white/80 hover:shadow-[0_0_8px_rgba(255,255,255,0.4)]" data-view="alunos">
+            <span class="material-icons mr-4">people</span>
+            <span>Alunos</span>
+          </a>
+          <a href="#" class="flex items-center px-6 py-3.5 cursor-pointer transition-all duration-300 text-white no-underline border-l-4 border-transparent hover:bg-white/15 hover:border-white/80 hover:shadow-[0_0_8px_rgba(255,255,255,0.4)]" data-view="usuarios">
+            <span class="material-icons mr-4">admin_panel_settings</span>
+            <span>Usuários</span>
+          </a>
+          <a href="#" class="flex items-center px-6 py-3.5 cursor-pointer transition-all duration-300 text-white no-underline border-l-4 border-transparent hover:bg-white/15 hover:border-white/80 hover:shadow-[0_0_8px_rgba(255,255,255,0.4)]" data-view="avaliacoes">
+            <span class="material-icons mr-4">assessment</span>
+            <span>Avaliações</span>
+          </a>
+          <a href="#" class="flex items-center px-6 py-3.5 cursor-pointer transition-all duration-300 text-white no-underline border-l-4 border-transparent hover:bg-white/15 hover:border-white/80 hover:shadow-[0_0_8px_rgba(255,255,255,0.4)]" data-view="treinos">
+            <span class="material-icons mr-4">fitness_center</span>
+            <span>Treinos</span>
+          </a>
+        </nav>
+      </aside>
+      
+      <!-- Main Content -->
+      <main class="flex-1 ml-64 p-6 transition-all duration-300 relative z-[1]">
+        <!-- Header -->
+        <div class="bg-white/92 backdrop-blur-lg p-5 px-6 rounded-lg mb-6 shadow-lg border border-white/30 flex justify-between items-center">
+          <button class="hidden bg-none border-none cursor-pointer p-2 text-r2-text hover:bg-gray-100 rounded-lg transition duration-150" id="menuToggle">
+            <span class="material-icons">menu</span>
+          </button>
+          <h1 class="text-3xl font-medium text-r2-text m-0">Gestão</h1>
+          <div class="flex gap-3 items-center">
+            <span class="text-r2-text-body">Olá, ${AppState.user.NomeCompleto}</span>
+            <button class="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium bg-red-500 hover:bg-red-600 transition duration-200 shadow-md hover:shadow-lg cursor-pointer border-none ripple" id="logoutBtn">
+              <span class="material-icons text-lg">logout</span>
+              Sair
+            </button>
+          </div>
+        </div>
+        
+        <!-- Content Area -->
+        <div>
+          <!-- Loading Stats -->
+          <div id="statsLoading" class="flex flex-col items-center justify-center p-12 bg-white/90 backdrop-blur-sm rounded-lg shadow-md">
+            <div class="w-12 h-12 border-4 border-r2-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p class="text-r2-text-body">Carregando estatísticas...</p>
+          </div>
+          
+          <!-- Stats Grid -->
+          <div id="statsContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6" style="display: none;">
+            <!-- Stat Card 1 -->
+            <div class="bg-white/95 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-100 hover:shadow-xl transition duration-200">
+              <div class="flex items-center gap-4">
+                <div class="w-14 h-14 rounded-full bg-r2-primary flex items-center justify-center text-white shadow-md">
+                  <span class="material-icons text-2xl">people</span>
+                </div>
+                <div class="flex-1">
+                  <div class="text-sm text-r2-text-muted font-medium">Total de Alunos</div>
+                  <div class="text-3xl font-bold text-r2-text" id="totalAlunos">0</div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Stat Card 2 -->
+            <div class="bg-white/95 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-100 hover:shadow-xl transition duration-200">
+              <div class="flex items-center gap-4">
+                <div class="w-14 h-14 rounded-full bg-green-500 flex items-center justify-center text-white shadow-md">
+                  <span class="material-icons text-2xl">check_circle</span>
+                </div>
+                <div class="flex-1">
+                  <div class="text-sm text-r2-text-muted font-medium">Alunos Ativos</div>
+                  <div class="text-3xl font-bold text-r2-text" id="alunosAtivos">0</div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Stat Card 3 -->
+            <div class="bg-white/95 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-100 hover:shadow-xl transition duration-200">
+              <div class="flex items-center gap-4">
+                <div class="w-14 h-14 rounded-full bg-orange-500 flex items-center justify-center text-white shadow-md">
+                  <span class="material-icons text-2xl">assessment</span>
+                </div>
+                <div class="flex-1">
+                  <div class="text-sm text-r2-text-muted font-medium">Avaliações Realizadas</div>
+                  <div class="text-3xl font-bold text-r2-text" id="totalAvaliacoes">0</div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Stat Card 4 -->
+            <div class="bg-white/95 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-100 hover:shadow-xl transition duration-200">
+              <div class="flex items-center gap-4">
+                <div class="w-14 h-14 rounded-full bg-purple-600 flex items-center justify-center text-white shadow-md">
+                  <span class="material-icons text-2xl">fitness_center</span>
+                </div>
+                <div class="flex-1">
+                  <div class="text-sm text-r2-text-muted font-medium">Treinos Cadastrados</div>
+                  <div class="text-3xl font-bold text-r2-text" id="totalTreinos">0</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Welcome Card -->
+          <div class="bg-white/95 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-100">
+            <h2 class="text-2xl font-semibold text-r2-text mb-3">Bem-vindo ao Sistema R2 Assessoria Esportiva</h2>
+            <p class="text-r2-text-body">Use o menu lateral para navegar entre as funcionalidades do sistema.</p>
+          </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="mt-8 text-center">
+          <p class="m-0 text-sm text-gray-600">
+            Todos os direitos reservados à <strong>R2 Assessoria Esportiva</strong><br>
+            Desenvolvimento: <strong>©2025 Studio Apollo Dev</strong>
+          </p>
+        </div>
+      </main>
+    </div>
+  `;
+}
+
